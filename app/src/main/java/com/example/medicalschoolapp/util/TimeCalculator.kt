@@ -11,11 +11,12 @@ object TimeCalculator {
     )
 
     fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long): Int {
-        if (currentDateMs < startDateMs) return 120
+        // Handle uninitialized or invalid start date
+        if (startDateMs <= 0 || currentDateMs < startDateMs) return 120
+        
         val diffMs = currentDateMs - startDateMs
         val weeksPassed = diffMs / (1000L * 60 * 60 * 24 * 7)
-        // 2.5 minutes per week = 5 minutes every 2 weeks
-        // To handle accurately, multiply weeksPassed by 2.5
+        // 2.5 minutes reduction per week
         val reduction = (weeksPassed * 2.5).toInt()
         val allowed = 120 - reduction
         return allowed.coerceAtLeast(0)
@@ -25,9 +26,9 @@ object TimeCalculator {
         startDateMs: Long,
         currentDateMs: Long,
         usedTimeMs: Long,
-        extendedTimeMins: Int
+        extendedTimeMins: Int,
+        baseAllowedMins: Int
     ): Long {
-        val baseAllowedMins = getBaseAllowedMinutes(startDateMs, currentDateMs)
         val totalAllowedMins = baseAllowedMins + extendedTimeMins
         val totalAllowedMs = totalAllowedMins * 60 * 1000L
         return (totalAllowedMs - usedTimeMs).coerceAtLeast(0L)

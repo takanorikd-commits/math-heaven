@@ -1,9 +1,12 @@
 package com.example.medicalschoolapp
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -16,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -23,8 +27,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.*
 import com.example.medicalschoolapp.data.LocalSettingsRepository
+import com.example.medicalschoolapp.service.AppMonitorService
 import com.example.medicalschoolapp.ui.MainViewModel
 import com.example.medicalschoolapp.ui.mainViewModelFactory
+import com.example.medicalschoolapp.util.TimeCalculator
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -79,14 +85,24 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
     val context = LocalContext.current
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
     val countdown by viewModel.commonTestCountdown.collectAsState()
+    
+    var isAccessibilityEnabled by remember { mutableStateOf(false) }
 
-    // Periodically refresh the countdown and re-query live usage time so the
-    // screen doesn't keep showing a stale cached value (e.g. right after midnight).
+    // Refresh state
     LaunchedEffect(Unit) {
         while (true) {
             viewModel.updateCountdown()
             viewModel.refreshRemainingTime()
-            delay(30000)
+            
+            // Check accessibility status
+            val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+            val enabledServices = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_GENERIC)
+            isAccessibilityEnabled = enabledServices.any { 
+                it.resolveInfo.serviceInfo.packageName == context.packageName && 
+                it.resolveInfo.serviceInfo.name == AppMonitorService::class.java.name 
+            }
+            
+            delay(10000)
         }
     }
 
@@ -108,6 +124,20 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
+        if (!isAccessibilityEnabled) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Text(
+                    text = "警告: 制限機能を有効にするには「ユーザー補助権限」が必要です。下のボタンから設定してください。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+        }
+
         Divider(modifier = Modifier.padding(vertical = 24.dp))
 
         Text("共通テストまで", style = MaterialTheme.typography.titleMedium)
@@ -123,12 +153,6 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }) {
             Text("使用状況へのアクセス権限を設定")
-        }
-        
-        Button(onClick = {
-            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }) {
-            Text("ユーザー補助権限を設定")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -173,16 +197,18 @@ fun SettingsAuthScreen(viewModel: MainViewModel, onAuthenticated: () -> Unit, on
             Text("保護者パスワードの初期設定", style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(
                 value = inputPassword,
-                onValueChange = { inputPassword = it },
-                label = { Text("新しいパスワード") },
+                onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) inputPassword = it },
+                label = { Text("新しいパスワード (4桁の数字)") },
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
             )
             Button(
                 onClick = {
-                    if (inputPassword.isNotBlank()) {
+                    if (inputPassword.length == 4) {
                         viewModel.setParentPassword(inputPassword)
                         onAuthenticated()
+                    } else {
+                        errorMessage = "4桁の数字を入力してください"
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
@@ -255,13 +281,184 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         )
         TabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("アプリ制限") })
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("一時パスワード") })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("時間設定") })
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("パスワード") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("一時パスワード") })
         }
 
         when (selectedTab) {
             0 -> AppCategoryList(viewModel)
-            1 -> TempPasswordManager(viewModel)
+            1 -> TimeSettingsScreen(viewModel)
+            2 -> PasswordSettingsScreen(viewModel)
+            3 -> TempPasswordManager(viewModel)
         }
+    }
+}
+
+@Composable
+fun PasswordSettingsScreen(viewModel: MainViewModel) {
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var successMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("保護者パスワードの変更", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = newPassword,
+            onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) newPassword = it },
+            label = { Text("新しいパスワード (4桁の数字)") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            isError = errorMessage != null
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = confirmPassword,
+            onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) confirmPassword = it },
+            label = { Text("パスワードの確認") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            isError = errorMessage != null
+        )
+
+        if (errorMessage != null) {
+            Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (successMessage != null) {
+            Text(successMessage!!, color = Color(0xFF4CAF50), style = MaterialTheme.typography.bodySmall)
+        }
+
+        Button(
+            onClick = {
+                if (newPassword.length != 4) {
+                    errorMessage = "4桁の数字を入力してください"
+                    successMessage = null
+                } else if (newPassword != confirmPassword) {
+                    errorMessage = "パスワードが一致しません"
+                    successMessage = null
+                } else {
+                    viewModel.setParentPassword(newPassword)
+                    errorMessage = null
+                    successMessage = "パスワードを変更しました"
+                    newPassword = ""
+                    confirmPassword = ""
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+        ) {
+            Text("パスワードを更新")
+        }
+    }
+}
+
+@Composable
+fun TimeSettingsScreen(viewModel: MainViewModel) {
+    val baseTimeMins by viewModel.baseTimeMins.collectAsState()
+    val startDate by viewModel.startDate.collectAsState()
+    val context = LocalContext.current
+
+    val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis())
+    val displayBaseMins = baseTimeMins ?: autoBaseMins
+
+    var textInputValue by remember(displayBaseMins) { mutableStateOf(displayBaseMins.toString()) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("基本の制限時間 (分)", style = MaterialTheme.typography.titleMedium)
+
+        if (baseTimeMins == null) {
+            Text(
+                "現在は自動設定が有効です（毎週2.5分ずつ減少）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            Text(
+                "現在は手動設定が有効です（本日のみ有効）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Numerical input field
+        OutlinedTextField(
+            value = textInputValue,
+            onValueChange = {
+                if (it.isEmpty() || (it.all { char -> char.isDigit() } && it.length <= 4)) {
+                    textInputValue = it
+                    it.toIntOrNull()?.let { mins ->
+                        viewModel.setBaseTime(mins.coerceIn(0, 1440))
+                    }
+                }
+            },
+            label = { Text("時間を直接入力 (分)") },
+            suffix = { Text("分") },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 16.dp)
+        ) {
+            Slider(
+                value = displayBaseMins.toFloat().coerceIn(0f, 300f),
+                onValueChange = { 
+                    viewModel.setBaseTime(it.toInt())
+                },
+                valueRange = 0f..300f,
+                steps = 59,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "$displayBaseMins 分",
+                modifier = Modifier.padding(start = 16.dp),
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        if (baseTimeMins != null) {
+            Button(
+                onClick = { viewModel.setBaseTime(-1) }, // -1 means reset to null/auto
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Text("自動設定（$autoBaseMins 分）に戻す")
+            }
+        }
+
+        Text(
+            "※ この時間を 0 に設定すると、テストとして即座にロックがかかる状態を確認できます。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Divider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("詳細設定", style = MaterialTheme.typography.titleMedium)
+        Button(
+            onClick = {
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+        ) {
+            Text("ユーザー補助設定を開く")
+        }
+        Text(
+            "※ お子様が勝手に解除した場合は、ここから再度有効にしてください。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp)
+        )
     }
 }
 

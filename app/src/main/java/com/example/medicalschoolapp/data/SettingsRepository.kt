@@ -27,6 +27,7 @@ interface SettingsRepository {
     val tempPasswordsFlow: Flow<List<TempPassword>>
     val appCategoriesFlow: Flow<Map<String, Boolean>>
     val dailyUsageStatsFlow: Flow<Pair<Long, Int>>
+    val baseTimeFlow: Flow<Int?>
 
     suspend fun setStartDate(date: Long)
     suspend fun setParentPassword(password: String)
@@ -35,9 +36,11 @@ interface SettingsRepository {
     suspend fun markTempPasswordUsed(code: String)
     suspend fun cleanupExpiredTempPasswords()
     suspend fun setAppCategory(packageName: String, isPlay: Boolean)
+    suspend fun isAppPlayCategory(packageName: String): Boolean
     suspend fun updateDailyUsage(dateStartOfDay: Long, usageTimeMs: Long)
     suspend fun addExtendedTime(minutes: Int, dateStartOfDay: Long)
     suspend fun getTodayPlayUsageMs(): Long
+    suspend fun setBaseTime(minutes: Int)
 }
 
 class LocalSettingsRepository(private val context: Context) : SettingsRepository {
@@ -52,6 +55,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val DAILY_USAGE_DATE = longPreferencesKey("daily_usage_date") // start-of-day timestamp this usage/extension applies to
         val DAILY_USAGE_TIME_MS = longPreferencesKey("daily_usage_time_ms")
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
+        val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
 
         val defaultAllowedPackages = setOf(
             "com.android.dialer",
@@ -59,8 +63,24 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             "com.samsung.android.dialer",
             "com.android.server.telecom",
             "com.android.phone",
-            "com.android.settings" // Also usually good to not block settings
+            "com.android.settings",
+            "com.android.vending",
+            "com.google.android.googlequicksearchbox",
+            "com.android.systemui",
+            "com.google.android.apps.nexuslauncher",
+            "com.google.android.inputmethod.latin",
+            "com.sec.android.app.launcher",
+            "com.miui.home",
+            "com.huawei.android.launcher"
         )
+    }
+
+    fun getLauncherPackages(): Set<String> {
+        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_HOME)
+        }
+        val resolveInfos = context.packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        return resolveInfos.map { it.activityInfo.packageName }.toSet()
     }
 
     override val startDateFlow: Flow<Long> = context.dataStore.data.map { preferences ->
@@ -95,6 +115,10 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             val extMins = preferences[EXTENDED_TIME_MINS_TODAY] ?: 0
             Pair(usageMs, extMins)
         }
+    }
+
+    override val baseTimeFlow: Flow<Int?> = context.dataStore.data.map { preferences ->
+        preferences[BASE_TIME_MINS]
     }
 
     override suspend fun setStartDate(date: Long) {
@@ -154,7 +178,18 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val json = context.dataStore.data.map { it[APP_CATEGORIES] ?: "{}" }.first()
         val type = object : TypeToken<Map<String, Boolean>>() {}.type
         val map: Map<String, Boolean> = gson.fromJson(json, type)
-        return map[packageName] ?: !defaultAllowedPackages.contains(packageName)
+        
+        // Explicitly set by parent
+        if (map.containsKey(packageName)) {
+            return map[packageName]!!
+        }
+        
+        // Defaults: Launcher and dialer etc are not play apps
+        if (defaultAllowedPackages.contains(packageName) || getLauncherPackages().contains(packageName)) {
+            return false
+        }
+        
+        return true
     }
 
     override suspend fun setAppCategory(packageName: String, isPlay: Boolean) {
@@ -171,10 +206,11 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         context.dataStore.edit { preferences ->
             val storedDate = preferences[DAILY_USAGE_DATE] ?: 0L
             if (storedDate != dateStartOfDay) {
-                // New day
+                // New day: Reset manual base time override and other daily stats
                 preferences[DAILY_USAGE_DATE] = dateStartOfDay
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
-                preferences[EXTENDED_TIME_MINS_TODAY] = 0 // Reset extended time on new day
+                preferences[EXTENDED_TIME_MINS_TODAY] = 0
+                preferences.remove(BASE_TIME_MINS) // Return to automatic time calculation
             } else {
                 // Same day, update time
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
@@ -198,5 +234,15 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
 
     override suspend fun getTodayPlayUsageMs(): Long {
         return UsageTracker.getTodayPlayUsageMs(context, this)
+    }
+
+    override suspend fun setBaseTime(minutes: Int) {
+        context.dataStore.edit { preferences ->
+            if (minutes < 0) {
+                preferences.remove(BASE_TIME_MINS)
+            } else {
+                preferences[BASE_TIME_MINS] = minutes
+            }
+        }
     }
 }

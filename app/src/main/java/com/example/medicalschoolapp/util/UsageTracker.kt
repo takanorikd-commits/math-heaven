@@ -2,6 +2,7 @@ package com.example.medicalschoolapp.util
 
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import com.example.medicalschoolapp.data.LocalSettingsRepository
 import com.example.medicalschoolapp.data.SettingsRepository
 import kotlinx.coroutines.flow.first
 
@@ -12,23 +13,47 @@ object UsageTracker {
         val now = System.currentTimeMillis()
         val startOfDay = TimeCalculator.getStartOfDayMs(now)
 
-        val stats = usageStatsManager.queryAndAggregateUsageStats(startOfDay, now)
+        // Using queryUsageStats for better control over aggregation
+        val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startOfDay, now)
         if (stats.isNullOrEmpty()) return 0L
 
-        // Get app categories map to check efficiently
         val categoriesMap = repository.appCategoriesFlow.first()
+        val launcherPackages = if (repository is LocalSettingsRepository) {
+            repository.getLauncherPackages()
+        } else {
+            emptySet<String>()
+        }
+        val defaultAllowed = LocalSettingsRepository.defaultAllowedPackages
+        val pm = context.packageManager
+
         var totalPlayTimeMs = 0L
 
-        for ((packageName, usageStats) in stats) {
-            // Self package is not play app
+        // Group by package to handle multiple entries if they exist
+        val aggregatedStats = stats.groupBy { it.packageName }
+
+        for ((packageName, packageStats) in aggregatedStats) {
             if (packageName == context.packageName) continue
-            // System packages (like launcher) might need exclusion, but for MVP let's just stick to the default rule.
-            // A better MVP would exclude common system UI packages, but we'll let the user categorize them.
-            val isPlayApp = categoriesMap[packageName] ?: true // Default is restricted (Play)
+            
+            // Only count apps that the user can actually launch
+            val hasLaunchIntent = try {
+                pm.getLaunchIntentForPackage(packageName) != null
+            } catch (e: Exception) {
+                false
+            }
+            if (!hasLaunchIntent) continue
+            
+            val isPlayApp = categoriesMap[packageName] ?: run {
+                !defaultAllowed.contains(packageName) && !launcherPackages.contains(packageName)
+            }
+            
             if (isPlayApp) {
-                totalPlayTimeMs += usageStats.totalTimeInForeground
+                // Sum foreground time for this package in the interval
+                totalPlayTimeMs += packageStats.sumOf { it.totalTimeInForeground }
             }
         }
-        return totalPlayTimeMs
+        
+        // Safety cap: usage cannot exceed time passed since start of day
+        val timePassedToday = now - startOfDay
+        return totalPlayTimeMs.coerceAtMost(timePassedToday)
     }
 }

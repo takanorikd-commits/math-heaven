@@ -21,6 +21,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val isParentPasswordSet = repository.isParentPasswordSetFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val tempPasswords = repository.tempPasswordsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     // Bumped whenever we want remainingTimeMs to re-query live usage (periodic ticker,
     // or right after a temp password grants extra time) rather than relying only on
@@ -32,11 +33,16 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val remainingTimeMs: StateFlow<Long> = combine(
         repository.startDateFlow,
         liveUsedTimeMsFlow,
-        repository.dailyUsageStatsFlow
-    ) { start, usedTimeMs, stats ->
+        repository.dailyUsageStatsFlow,
+        repository.baseTimeFlow
+    ) { start, usedTimeMs, stats, manualBaseMins ->
         val extendedTimeMins = stats.second
         val now = System.currentTimeMillis()
-        TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins)
+        
+        // Use manual override if set, otherwise use the auto-calculating base time
+        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now)
+
+        TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins, baseMins)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 120 * 60 * 1000L)
 
     val commonTestCountdown = MutableStateFlow(TimeCalculator.getCountdownToCommonTest())
@@ -44,6 +50,9 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     init {
         viewModelScope.launch {
             repository.cleanupExpiredTempPasswords()
+            // Ensure start date is fixed upon first launch if not already set
+            val currentStart = repository.startDateFlow.first()
+            repository.setStartDate(currentStart)
         }
     }
 
@@ -70,6 +79,13 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     fun toggleAppCategory(packageName: String, currentIsPlay: Boolean) {
         viewModelScope.launch {
             repository.setAppCategory(packageName, !currentIsPlay)
+        }
+    }
+
+    fun setBaseTime(minutes: Int) {
+        viewModelScope.launch {
+            repository.setBaseTime(minutes)
+            refreshRemainingTime()
         }
     }
 

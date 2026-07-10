@@ -2,6 +2,7 @@ package com.example.medicalschoolapp.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.example.medicalschoolapp.BlockActivity
 import com.example.medicalschoolapp.data.LocalSettingsRepository
@@ -17,8 +18,13 @@ class AppMonitorService : AccessibilityService() {
     private var monitorJob: Job? = null
     private var currentForegroundPackage: String? = null
 
+    companion object {
+        private const val TAG = "AppMonitorService"
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        Log.d(TAG, "Service connected")
         repository = LocalSettingsRepository(applicationContext)
     }
 
@@ -26,12 +32,12 @@ class AppMonitorService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
             
-            // Ignore system UI and self
             if (packageName == "com.android.systemui" || packageName == applicationContext.packageName) {
                 return
             }
 
             if (packageName != currentForegroundPackage) {
+                Log.d(TAG, "Foreground app changed to: $packageName")
                 currentForegroundPackage = packageName
                 handleAppChange(packageName)
             }
@@ -42,15 +48,18 @@ class AppMonitorService : AccessibilityService() {
         monitorJob?.cancel()
         
         serviceScope.launch {
-            val categoriesMap = repository.appCategoriesFlow.first()
-            val isPlayApp = categoriesMap[packageName] ?: true // Default is restricted
+            val isPlay = repository.isAppPlayCategory(packageName)
+            Log.d(TAG, "App $packageName categorized as Play: $isPlay")
             
-            if (isPlayApp) {
-                // Start monitoring loop for play app
+            if (isPlay) {
+                // Initial check
+                checkAndBlockIfTimeUp(packageName)
+
+                // Periodic check
                 monitorJob = launch {
                     while (isActive) {
+                        delay(5000) // check more frequently for better blocking
                         checkAndBlockIfTimeUp(packageName)
-                        delay(10000) // check every 10 seconds while play app is in foreground
                     }
                 }
             }
@@ -61,20 +70,27 @@ class AppMonitorService : AccessibilityService() {
         val usedTimeMs = repository.getTodayPlayUsageMs()
         val startDateMs = repository.startDateFlow.first()
         val stats = repository.dailyUsageStatsFlow.first()
+        val manualBaseMins = repository.baseTimeFlow.first()
         val extendedTimeMins = stats.second
         val now = System.currentTimeMillis()
+
+        val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now)
 
         val remainingMs = TimeCalculator.getRemainingTimeTodayMs(
             startDateMs = startDateMs,
             currentDateMs = now,
             usedTimeMs = usedTimeMs,
-            extendedTimeMins = extendedTimeMins
+            extendedTimeMins = extendedTimeMins,
+            baseAllowedMins = baseAllowedMins
         )
 
-        // Also update local DB for UI to reflect latest accurate time quickly
+        Log.d(TAG, "Checking $packageName: used=${usedTimeMs/1000}s, remaining=${remainingMs/1000}s")
+
+        // Update cache
         repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(now), usedTimeMs)
 
         if (remainingMs <= 0) {
+            Log.w(TAG, "BLOCKING $packageName - Time is up!")
             launchBlockActivity()
         }
     }

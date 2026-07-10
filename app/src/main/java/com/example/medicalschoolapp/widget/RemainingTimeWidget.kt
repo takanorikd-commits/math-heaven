@@ -28,10 +28,13 @@ class RemainingTimeWidget : GlanceAppWidget() {
         val stats = repository.dailyUsageStatsFlow.first()
         val usedTimeMs = repository.getTodayPlayUsageMs()
         val extendedTimeMins = stats.second
+        val manualBaseMins = repository.baseTimeFlow.first()
         val now = System.currentTimeMillis()
+        
+        val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now)
 
         val remainingMs = TimeCalculator.getRemainingTimeTodayMs(
-            startDateMs, now, usedTimeMs, extendedTimeMins
+            startDateMs, now, usedTimeMs, extendedTimeMins, baseAllowedMins
         )
         val remainingMins = (remainingMs / 60000).coerceAtLeast(0)
         
