@@ -50,3 +50,37 @@
 
 ---
 **注意**: 本計画はAndroid版の動作に影響を与えないよう、完全に独立したモジュールとして開発を進める。
+
+## 6. 実装状況（2026-07-25時点、別PCで開発を引き継ぐ場合はここを読むこと）
+
+`WindowsApp/` にMVP実装が完了している。別PCでClaude Codeを使って続きを開発する場合、このリポジトリをclone/pullすればコード一式は揃う（このセッションの会話ログ自体は引き継がれない前提で、以下に必要な文脈をまとめる）。
+
+### 開発環境の注意
+- このPCには元々.NET SDKが入っておらず、`C:\Users\takan\.dotnet-sdk` に**ユーザー権限のみ**で.NET 8 SDK (8.0.423) を導入した（`winget install`ではなく公式 `dotnet-install.ps1` スクリプトを使用、Program Files/PATHは無変更）。別PCでも `dotnet --list-sdks` を確認し、無ければ同様にユーザーローカルへ導入すること。
+- ビルド: `dotnet build`（`WindowsApp/MedicalSchoolApp.Windows.sln`）
+- WebView2ランタイムは多くのWindows 10/11で導入済みだが、無ければ別途インストールが必要。
+
+### プロジェクト構成（実装済み）
+- `MedicalSchoolApp.Windows`（本体、WPF）— `App.xaml.cs`が起動処理の起点。`Models/`, `Services/`, `Views/`。
+- `MedicalSchoolApp.Windows.Watchdog`（別プロセスのウォッチドッグ、コンソールなしのWinExe）
+
+### 実装済み機能
+ダッシュボード（残り時間・モード・次の勉強時間・共通テストまでの日数を「77週5日15時間5分」形式で表示）、保護者設定（パスワードゲート、曜日別勉強時間、許可アプリリスト方式、共通テスト日、パスワード変更、一時パスワード発行）、ChatGPT専用WebView2画面（`chatgpt.com`/`chat.openai.com`以外への遷移とpopupを拒否）、ブロック画面（一時パスワード5回失敗で30秒ロックアウト）、プロセス監視（`ProcessMonitor.cs`：許可リスト方式＝許可アプリ以外は制限モード中に終了、通常モードでは60分からカウント）、システムトレイ常駐、レジストリRunキーによる自動起動。
+
+### ウォッチドッグ（相互監視）
+子供がタスクマネージャーで本体を強制終了した場合の対策として、`MedicalSchoolApp.Windows.Watchdog`が1秒ごとに本体の生存を確認し、いなければ自動再起動する。本体側も同様にWatchdogの生存を確認・再起動する（`WatchdogService.cs`）。どちらか一方の強制終了では回避できない（実機で相互再起動・意図的終了の3パターンを実際に動かして検証済み）。
+- 保護者が正規にトレイの「終了」を選ぶ場合のみ`%APPDATA%\MedicalSchoolApp.Windows\shutdown.flag`を書き込んでから終了し、Watchdogはこれを見て再起動を止める。
+- トレイの「終了」は保護者パスワード必須（`PasswordPromptWindow`）。これが無いとウォッチドッグ自体が無意味になるため。
+- **既知の限界**: 子供が本体とWatchdogを「ほぼ同時に」終了させれば依然回避可能。真の対策にはWindowsサービス化（SYSTEM権限、管理者インストールが必要、UI分離のための大改修）が必要で、これは未実装・将来課題。
+
+### Chrome Remote Desktopとの共存
+保護者はこのPCで既にChrome Remote Desktop（リモートアクセスモード、`chromoting`サービス）を導入済みで、制限モード中も画面確認・遠隔操作ができる必要があった。`ProcessMonitor.cs`のSafeListに`remoting_host.exe`等のCRD関連プロセスを保護対象として明示的に追加済み。
+
+### 配布方法
+`dotnet publish -c Release -r win-x64 --self-contained false -o publish/framework-dependent` でメインアプリとWatchdogの両方を**同じ出力フォルダ**にpublishする（`--self-contained false`だと対象PCに.NET 8 Desktop Runtimeのインストールが必要、約60MB・容量重視）。両csprojに`RollForward=LatestMajor`を設定済みなので、対象PCに.NET 8ちょうどが無くても9/10系のDesktop Runtimeで動く。
+
+### 保護者パスワードの初期値
+`0000`。初回起動後すぐに保護者設定から変更すること（コード上のデフォルトでもある）。
+
+### 引き継ぎ時にまず読むべきファイル
+`App.xaml.cs`（起動フロー）、`Services/ProcessMonitor.cs`（監視ロジック）、`Services/WatchdogService.cs`、`Services/ModeService.cs`（モード判定・時間計算）。

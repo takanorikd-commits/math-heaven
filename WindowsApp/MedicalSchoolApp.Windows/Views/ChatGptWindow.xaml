@@ -1,0 +1,11 @@
+<Window x:Class="MedicalSchoolApp.Windows.Views.ChatGptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="ChatGPT" Height="750" Width="1050"
+        WindowStartupLocation="CenterScreen"
+        Background="#0F172A">
+    <Grid>
+        <wv2:WebView2 x:Name="WebView" Source="https://chatgpt.com/"/>
+    </Grid>
+</Window>

@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>MedicalSchoolApp.Windows</AssemblyName>
+    <RootNamespace>MedicalSchoolApp.Windows</RootNamespace>
+    <!-- 対象PCに.NET 8ぴったりが無くても、9/10等の新しいDesktop Runtimeで動かせるようにする -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+  </ItemGroup>
+
+  <!-- UseWindowsForms が System.Windows.Forms / System.Drawing の暗黙globalusingを追加し、
+       WPFの同名クラス(Application, Button, Color, MessageBox等)と衝突するため無効化する。
+       WinFormsの型(NotifyIcon等)は使用箇所で完全修飾名を使う。 -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+</Project>
