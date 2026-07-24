@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.medicalschoolapp.data.SettingsRepository
+import com.example.medicalschoolapp.model.StudySchedule
 import com.example.medicalschoolapp.model.TempPassword
 import com.example.medicalschoolapp.util.TimeCalculator
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val tempPasswords = repository.tempPasswordsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val studySchedules = repository.studySchedulesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Bumped whenever we want remainingTimeMs to re-query live usage (periodic ticker,
     // or right after a temp password grants extra time) rather than relying only on
@@ -86,6 +88,12 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
         viewModelScope.launch {
             repository.setBaseTime(minutes)
             refreshRemainingTime()
+        }
+    }
+
+    fun updateStudySchedules(schedules: List<StudySchedule>) {
+        viewModelScope.launch {
+            repository.setStudySchedules(schedules)
         }
     }
 

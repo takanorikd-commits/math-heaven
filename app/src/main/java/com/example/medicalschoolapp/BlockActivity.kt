@@ -1,5 +1,6 @@
 package com.example.medicalschoolapp
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -144,6 +145,22 @@ fun BlockScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("延長する (15分)")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                (context as? ComponentActivity)?.finish()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("ホーム画面に戻る")
         }
     }
 }

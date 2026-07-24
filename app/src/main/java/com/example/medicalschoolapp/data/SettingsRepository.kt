@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.medicalschoolapp.model.StudySchedule
+import com.example.medicalschoolapp.model.StudyTimeRange
 import com.example.medicalschoolapp.model.TempPassword
 import com.example.medicalschoolapp.util.PasswordHasher
 import com.example.medicalschoolapp.util.TimeCalculator
@@ -28,6 +30,7 @@ interface SettingsRepository {
     val appCategoriesFlow: Flow<Map<String, Boolean>>
     val dailyUsageStatsFlow: Flow<Pair<Long, Int>>
     val baseTimeFlow: Flow<Int?>
+    val studySchedulesFlow: Flow<List<StudySchedule>>
 
     suspend fun setStartDate(date: Long)
     suspend fun setParentPassword(password: String)
@@ -41,6 +44,8 @@ interface SettingsRepository {
     suspend fun addExtendedTime(minutes: Int, dateStartOfDay: Long)
     suspend fun getTodayPlayUsageMs(): Long
     suspend fun setBaseTime(minutes: Int)
+    suspend fun setStudySchedules(schedules: List<StudySchedule>)
+    fun isStudyTimeNow(): Boolean
 }
 
 class LocalSettingsRepository(private val context: Context) : SettingsRepository {
@@ -56,11 +61,14 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val DAILY_USAGE_TIME_MS = longPreferencesKey("daily_usage_time_ms")
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
         val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
+        val STUDY_SCHEDULES = stringPreferencesKey("study_schedules") // JSON list
 
         val defaultAllowedPackages = setOf(
             "com.android.dialer",
             "com.google.android.dialer",
             "com.samsung.android.dialer",
+            "com.samsung.android.incallui",
+            "com.android.incallui",
             "com.android.server.telecom",
             "com.android.phone",
             "com.android.settings",
@@ -71,7 +79,9 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             "com.google.android.inputmethod.latin",
             "com.sec.android.app.launcher",
             "com.miui.home",
-            "com.huawei.android.launcher"
+            "com.huawei.android.launcher",
+            "com.samsung.android.messaging",
+            "com.google.android.apps.messaging"
         )
     }
 
@@ -119,6 +129,12 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
 
     override val baseTimeFlow: Flow<Int?> = context.dataStore.data.map { preferences ->
         preferences[BASE_TIME_MINS]
+    }
+
+    override val studySchedulesFlow: Flow<List<StudySchedule>> = context.dataStore.data.map { preferences ->
+        val json = preferences[STUDY_SCHEDULES] ?: "[]"
+        val type = object : TypeToken<List<StudySchedule>>() {}.type
+        gson.fromJson(json, type)
     }
 
     override suspend fun setStartDate(date: Long) {
@@ -243,6 +259,41 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             } else {
                 preferences[BASE_TIME_MINS] = minutes
             }
+        }
+    }
+
+    override suspend fun setStudySchedules(schedules: List<StudySchedule>) {
+        context.dataStore.edit { preferences ->
+            preferences[STUDY_SCHEDULES] = gson.toJson(schedules)
+        }
+    }
+
+    override fun isStudyTimeNow(): Boolean {
+        val calendar = java.util.Calendar.getInstance()
+        val currentDay = calendar.get(java.util.Calendar.DAY_OF_WEEK)
+        val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+        val currentMinute = calendar.get(java.util.Calendar.MINUTE)
+        val currentTimeInMins = currentHour * 60 + currentMinute
+
+        val json = run {
+            val prefs = try {
+                // Blocking read for a quick check in service/monitor
+                kotlinx.coroutines.runBlocking { context.dataStore.data.first() }
+            } catch (e: Exception) {
+                return false
+            }
+            prefs[STUDY_SCHEDULES] ?: "[]"
+        }
+        
+        val type = object : TypeToken<List<StudySchedule>>() {}.type
+        val schedules: List<StudySchedule> = gson.fromJson(json, type)
+        
+        val todaySchedule = schedules.find { it.dayOfWeek == currentDay } ?: return false
+        
+        return todaySchedule.ranges.any { range ->
+            val startInMins = range.startHour * 60 + range.startMinute
+            val endInMins = range.endHour * 60 + range.endMinute
+            currentTimeInMins in startInMins until endInMins
         }
     }
 }

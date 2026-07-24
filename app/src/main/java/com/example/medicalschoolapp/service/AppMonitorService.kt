@@ -32,13 +32,20 @@ class AppMonitorService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
             
-            if (packageName == "com.android.systemui" || packageName == applicationContext.packageName) {
+            if (packageName == "com.android.systemui") {
                 return
             }
 
             if (packageName != currentForegroundPackage) {
                 Log.d(TAG, "Foreground app changed to: $packageName")
                 currentForegroundPackage = packageName
+
+                // 自アプリが最前面に来た場合は、制限対象アプリの監視を停止する
+                if (packageName == applicationContext.packageName) {
+                    monitorJob?.cancel()
+                    return
+                }
+
                 handleAppChange(packageName)
             }
         }
@@ -88,6 +95,13 @@ class AppMonitorService : AccessibilityService() {
 
         // Update cache
         repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(now), usedTimeMs)
+
+        val isStudyTime = repository.isStudyTimeNow()
+        if (isStudyTime) {
+            Log.w(TAG, "BLOCKING $packageName - It's study time!")
+            launchBlockActivity()
+            return
+        }
 
         if (remainingMs <= 0) {
             Log.w(TAG, "BLOCKING $packageName - Time is up!")
