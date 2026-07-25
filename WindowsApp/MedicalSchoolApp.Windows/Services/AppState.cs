@@ -11,6 +11,12 @@ public static class AppState
     public static AppSettings Settings { get; private set; } = SettingsService.Load();
     public static Dictionary<string, DayUsage> Usage { get; private set; } = UsageService.Load();
 
+    /// <summary>
+    /// 疑似制限モード（動作確認用）。実際の時間・勉強時間に関わらず制限モードを強制する。
+    /// あえて設定ファイルには保存しない（アプリ再起動で必ずOFFに戻る安全策）。
+    /// </summary>
+    public static bool PseudoRestrictedMode { get; set; }
+
     public static event Action? Updated;
 
     public static void RaiseUpdated() => Updated?.Invoke();

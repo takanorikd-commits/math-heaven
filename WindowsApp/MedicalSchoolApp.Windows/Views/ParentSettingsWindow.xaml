@@ -57,6 +57,10 @@
                 <Button x:Name="MachineWideToggleButton" Click="MachineWideToggleButton_Click" Margin="0,0,0,8"/>
                 <TextBlock x:Name="MachineWideMessageText" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,16"/>
 
+                <TextBlock Text="疑似制限モード（動作確認用）" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                <TextBlock Text="実際の勉強時間・60分超過を待たずに、強制的に制限モードを試せます。もう一度押すと通常モードに戻ります。アプリを再起動すると自動的にOFFに戻ります。" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Button x:Name="PseudoRestrictedToggleButton" Click="PseudoRestrictedToggleButton_Click" Margin="0,0,0,16"/>
+
                 <TextBlock Text="曜日別勉強時間" FontSize="16" FontWeight="Bold" Margin="0,8,0,8"/>
                 <StackPanel x:Name="WeekdayPanel" Margin="0,0,0,16"/>
 

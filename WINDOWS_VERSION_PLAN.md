@@ -2,6 +2,109 @@
 
 本ドキュメントは、Android版「医学部合格アプリ」の機能をWindowsプラットフォームへ拡張するための開発計画書です。開発は Claude Code を使用し、既存のAndroid版リポジトリと同じルートディレクトリ内の別フォルダで管理します。
 
+> **別ツール（Antigravity等）や新しいAIコーディングセッションでこの開発を引き継ぐ場合は、下の「0. 現在の状態」だけ読めば作業を再開できます。** セクション1〜6は元の計画書と経緯の記録（詳細確認用）です。
+
+## 0. 現在の状態（引き継ぎ時はここを最優先で読むこと）
+
+**最終更新: 2026-07-26**
+
+### 何を作っているか
+子供のWindows PCで、遊び目的のアプリ使用を1日60分に制限し、曜日別の勉強時間中はさらに制限、制限モード中はアプリ内蔵のChatGPT画面のみ使用可能にする常駐アプリ。Android版とは別物で、同期はしない（将来課題）。
+
+### ステータス
+MVPの機能はすべて実装・ビルド確認済み。一部（UAC昇格を伴うフロー等）は実機での対話操作が必要なため未検証。下記「未検証」を参照。
+
+### プロジェクトの場所
+`WindowsApp/`（リポジトリルート直下、Android版`app/`とは完全に独立、Android側は一切変更しない）
+- ソリューション: `WindowsApp/MedicalSchoolApp.Windows.sln`
+- 本体: `WindowsApp/MedicalSchoolApp.Windows/`（WPF, `net8.0-windows`）
+- 監視用ウォッチドッグ: `WindowsApp/MedicalSchoolApp.Windows.Watchdog/`（別プロセス、コンソールなしのWinExe）
+
+### ビルド方法
+.NET 8 SDKが必要。開発機(`C:\Users\takan`)には元々SDKが無かったため、`C:\Users\takan\.dotnet-sdk`に**ユーザー権限のみ**で導入済み（`Program Files`やPATHは無変更）。別PCでは:
+```powershell
+dotnet --list-sdks   # 8.x系が無ければ以下で導入（管理者権限不要）
+Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile "$env:TEMP\dotnet-install.ps1"
+& "$env:TEMP\dotnet-install.ps1" -Channel 8.0 -InstallDir "$env:USERPROFILE\.dotnet-sdk" -NoPath
+```
+ビルド:
+```powershell
+<導入したdotnet.exeのフルパス> build WindowsApp\MedicalSchoolApp.Windows.sln
+```
+
+### 配布（publish）方法
+本体とWatchdogを**同じ出力フォルダ**にpublishする（実行順はどちらが先でもよい）:
+```powershell
+dotnet publish WindowsApp/MedicalSchoolApp.Windows/MedicalSchoolApp.Windows.csproj -c Release -r win-x64 --self-contained false -o WindowsApp/publish/framework-dependent
+dotnet publish WindowsApp/MedicalSchoolApp.Windows.Watchdog/MedicalSchoolApp.Windows.Watchdog.csproj -c Release -r win-x64 --self-contained false -o WindowsApp/publish/framework-dependent
+```
+`--self-contained false`（フレームワーク依存、数MB）を推奨。対象PCに.NET 8 Desktop Runtimeが必要（無ければ https://dotnet.microsoft.com/download/dotnet/8.0 からDesktop Runtime x64を導入）。両csprojに`RollForward=LatestMajor`を設定済みなので、対象PCに.NET 8ちょうどが無くても9/10系のランタイムで動く。`WindowsApp/publish/`は`.gitignore`済みでリポジトリには含まれない。
+
+### コードマップ（主要ファイル）
+`MedicalSchoolApp.Windows/`
+- `App.xaml.cs` — 起動処理の起点。トレイアイコン、DispatcherTimer（1秒ごとの監視ループ）、名前付きMutexでの単一インスタンス化、`--register-machine-wide`/`--unregister-machine-wide`引数のハンドリング、グローバル例外ハンドラ
+- `Models/AppSettings.cs` ほか `Models/` — 設定のデータモデル（詳細は下記）
+- `Services/SettingsService.cs` — 設定のJSON読み書き。保存先は`%ProgramData%\MedicalSchoolApp.Windows\`が存在すればそちら（全アカウント共有モード）、無ければ従来通り`%APPDATA%\MedicalSchoolApp.Windows\`
+- `Services/UsageService.cs` — 使用履歴（`usage_history.json`）の読み書き
+- `Services/ModeService.cs` — モード判定（Normal/StudyTime/TimeExceeded）、残り時間、次の勉強時間、共通テストまでのカウントダウン計算（「77週5日15時間5分」形式）
+- `Services/ProcessMonitor.cs` — 1秒ごとの中心ロジック。前面プロセス取得はP/Invoke（`GetForegroundWindow`/`GetWindowThreadProcessId`）のみ使用、可視ウィンドウの列挙・終了は`Process.GetProcesses()`の`MainWindowHandle`/`MainWindowTitle`で完結（`EnumWindows`の手動P/Invokeは不要）。許可リスト外アプリを`CloseMainWindow()`→数回失敗で`Kill()`。SafeListでOS/WebView2/Chrome Remote Desktop関連プロセスを保護。疑似制限モードもここで反映
+- `Services/WatchdogService.cs` — Watchdogとの連携（生存確認・起動、`shutdown.flag`の読み書き、HKCU自動起動、`Process.SessionId`でのフィルタ）
+- `Services/MachineWideSetupService.cs` — 「全アカウントで保護」機能。HKLM Runキー登録、ProgramDataフォルダのACL付与（`icacls`）、UAC昇格の呼び出し
+- `Services/AutostartService.cs` — HKCU Runキー（本体用、通常モード時のみ使用）
+- `Services/PasswordHasher.cs` — salt付きSHA-256
+- `Services/AppState.cs` — Settings/Usageのシングルトン。`PseudoRestrictedMode`（疑似制限モード、非永続）もここ
+- `Views/DashboardWindow.xaml(.cs)` — ダッシュボード
+- `Views/ParentSettingsWindow.xaml(.cs)` — 保護者設定（パスワードゲート）。全設定項目・全アカウント保護トグル・疑似制限モードトグルもここ
+- `Views/ChatGptWindow.xaml(.cs)` — WebView2、ナビゲーションガード（`chatgpt.com`/`chat.openai.com`以外を拒否、popupも拒否）
+- `Views/BlockWindow.xaml(.cs)` — ブロック画面（最前面・枠なし・全画面）
+- `Views/PasswordPromptWindow.xaml(.cs)` — 汎用パスワード確認ダイアログ（トレイの「終了」で使用）
+
+`MedicalSchoolApp.Windows.Watchdog/Program.cs` — 単一ファイルの常駐監視プロセス（本体と相互に生存確認）
+
+### 設定データモデル（`Models/AppSettings.cs`）
+```
+DailyLimitMinutes: int = 60
+WeekdayStudyTimes: Dictionary<string, List<StudyTimeRange>>  // key: "mon".."sun"、StudyTimeRangeはStart/End("HH:mm"文字列)
+AllowedApps: List<string>  // 実行ファイル名（例: "winword.exe"）。ここに無いものは制限モードで終了対象
+ParentPasswordHash / ParentPasswordSalt: string  // 初期パスワードは"0000"
+TempPassword: TempPasswordInfo?  // CodeHash, Salt, ExtendMinutes, ExpiresAt, Used
+ExamDate: DateTime = 2028-01-15 09:30  // Android版のTimeCalculatorと同じデフォルト値
+AutostartEnabled: bool = true
+```
+保存先は`settings.json`・`usage_history.json`（前述の`%ProgramData%`または`%APPDATA%`配下）。
+
+### 実装済み機能一覧
+1. ダッシュボード（残り時間、モードバッジ、次の勉強時間、共通テストまでの日数）
+2. 保護者設定（パスワードゲート、1日上限分、曜日別勉強時間、許可アプリリスト、共通テスト日、パスワード変更、一時パスワード発行）
+3. ChatGPT専用WebView2画面
+4. ブロック画面（一時パスワード5回失敗で30秒ロックアウト）
+5. プロセス監視・制限モードでの終了（許可リスト方式、Android版の`isAppPlayCategory`と同じ考え方）
+6. システムトレイ常駐、レジストリRunキーによる自動起動
+7. ウォッチドッグによる相互監視（タスクマネージャーでの強制終了対策）
+8. 全アカウントでの保護（HKLM自動起動＋ProgramData共有ストレージ、要管理者権限、初回のみUAC）
+9. **疑似制限モード**（動作確認用、2026-07-26追加）— 保護者設定画面の「疑似制限モードを開始する」ボタンで、実際の時刻・使用時間に関わらず即座に制限モードへ切り替えられる。もう一度押すと通常モードに戻る。アプリ再起動で自動的にOFFへリセットされる（`AppState.PseudoRestrictedMode`、設定ファイルには保存しない）。ダッシュボード/ブロック画面には「疑似制限中（テスト）」と表示され、本物の60分超過と区別できる
+
+### 実機で検証済みのこと
+- ビルド（`dotnet build`）・起動（`dotnet run`、複数回確認）
+- ウォッチドッグの相互再起動 — 本体を`taskkill`すると数秒でWatchdogが再起動、Watchdogを`taskkill`すると数秒で本体が再起動、`shutdown.flag`があれば再起動せず両方終了、を実際にプロセスをkillして確認済み
+- 管理者権限なしで`--register-machine-wide`を実行しても、クラッシュせず静かに失敗すること（登録も行われないこと）
+
+### 未検証（次にやるべきこと・実機での確認が必要）
+- **UAC昇格を伴う「全アカウントで保護」の実際の有効化フロー**（管理者パスワードを入力する対話操作は自動化ツールから実行できないため未検証）
+- 有効化後、実際に別のWindowsアカウントでログインして保護が効くことの確認
+- **疑似制限モードを使った実際のブロック動作確認**（ボタン自体とビルドは確認済みだが、実際にゲーム等を起動してみて制限モード中に閉じられる様子、ChatGPT専用画面のみ使えることは未確認。これを確かめるために疑似制限モードを追加した）
+- Chrome Remote Desktopとの共存（SafeListへの追加は実装済みだが、実際に制限モード中にリモート接続できるかは未確認）
+
+### 既知の制限（仕様として受け入れ済み、対策候補はあるが未実装）
+- 子供が本体とWatchdogを「ほぼ同時に」強制終了すれば回避可能。真の対策はWindowsサービス化（SYSTEM権限、UI分離のための大改修）だが未実装
+- 複数アカウント同時ログイン（高速ユーザー切り替え）で同時に使われた場合、使用時間の合算にわずかな取りこぼしが起きうる（ファイルロック無しで5秒毎に上書き保存のため）
+- 「制限対象候補」（Chrome/Edge等）を個別にブロックリスト化する仕組みは無い。許可リストに無いものは自動的に制限対象になる方式
+
+### 保護者パスワードの初期値
+`0000`。初回起動後すぐに保護者設定から変更すること。
+
+---
+
 ## 1. 開発目的
 子供がスマホの制限を回避してPC（動画、ゲーム、SNS、ブラウザ等）を長時間使用することを防ぎ、学習時間を確保することを目的とします。
 

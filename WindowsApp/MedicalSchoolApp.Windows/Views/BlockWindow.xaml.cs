@@ -32,6 +32,12 @@ public partial class BlockWindow : Window
 
     public void Refresh()
     {
+        if (AppState.PseudoRestrictedMode)
+        {
+            ReasonText.Text = "疑似制限モード（テスト中）";
+            return;
+        }
+
         var mode = ModeService.ComputeMode(AppState.Settings, AppState.TodayUsage, DateTime.Now);
         ReasonText.Text = mode == Mode.StudyTime
             ? "現在は勉強時間中です"

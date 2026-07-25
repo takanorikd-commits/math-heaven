@@ -44,7 +44,8 @@ public static class ProcessMonitor
         var today = AppState.TodayUsage;
         var now = DateTime.Now;
 
-        var mode = ModeService.ComputeMode(settings, today, now);
+        // 疑似制限モード（動作確認用）が有効な間は、実際の時間・勉強時間に関わらず制限モード扱いにする
+        var mode = AppState.PseudoRestrictedMode ? Mode.TimeExceeded : ModeService.ComputeMode(settings, today, now);
         var allowedSet = new HashSet<string>(settings.AllowedApps.Select(a => a.ToLowerInvariant()), StringComparer.OrdinalIgnoreCase);
         var ownPid = Environment.ProcessId;
 

@@ -43,12 +43,14 @@ public partial class DashboardWindow : Window
             ExamCountdownText.Text = "未設定";
         }
 
-        (ModeBadgeText.Text, ModeBadgeBorder.Background) = mode switch
-        {
-            Mode.StudyTime => ("勉強時間中", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x8B, 0x5C, 0xF6))),
-            Mode.TimeExceeded => ("60分超過", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44))),
-            _ => ("通常", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81))),
-        };
+        (ModeBadgeText.Text, ModeBadgeBorder.Background) = AppState.PseudoRestrictedMode
+            ? ("疑似制限中（テスト）", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B)))
+            : mode switch
+            {
+                Mode.StudyTime => ("勉強時間中", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x8B, 0x5C, 0xF6))),
+                Mode.TimeExceeded => ("60分超過", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44))),
+                _ => ("通常", new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81))),
+            };
     }
 
     private void OpenChatGptButton_Click(object sender, RoutedEventArgs e)

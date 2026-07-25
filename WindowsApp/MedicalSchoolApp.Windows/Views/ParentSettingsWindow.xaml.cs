@@ -56,6 +56,28 @@ public partial class ParentSettingsWindow : Window
         RefreshAllowedAppsList();
         RebuildWeekdayPanel();
         RefreshMachineWideStatus();
+        RefreshPseudoRestrictedButton();
+    }
+
+    private void RefreshPseudoRestrictedButton()
+    {
+        if (AppState.PseudoRestrictedMode)
+        {
+            PseudoRestrictedToggleButton.Content = "疑似制限モードを解除する（通常に戻す）";
+            PseudoRestrictedToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
+        }
+        else
+        {
+            PseudoRestrictedToggleButton.Content = "疑似制限モードを開始する";
+            PseudoRestrictedToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x41, 0x55));
+        }
+    }
+
+    private void PseudoRestrictedToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        AppState.PseudoRestrictedMode = !AppState.PseudoRestrictedMode;
+        RefreshPseudoRestrictedButton();
+        AppState.RaiseUpdated();
     }
 
     private void RefreshMachineWideStatus()
