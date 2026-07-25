@@ -51,6 +51,12 @@
 
                 <CheckBox x:Name="AutostartCheckBox" Content="Windowsログイン時に自動起動する" Foreground="White" Margin="0,0,0,16"/>
 
+                <TextBlock Text="全アカウントでの保護" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                <TextBlock Text="このPCに子供が使える別のWindowsアカウントがある場合、有効にするとどのアカウントでログインしても保護されます（初回のみ管理者権限が必要）。" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock x:Name="MachineWideStatusText" Margin="0,0,0,8" FontWeight="Bold"/>
+                <Button x:Name="MachineWideToggleButton" Click="MachineWideToggleButton_Click" Margin="0,0,0,8"/>
+                <TextBlock x:Name="MachineWideMessageText" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
                 <TextBlock Text="曜日別勉強時間" FontSize="16" FontWeight="Bold" Margin="0,8,0,8"/>
                 <StackPanel x:Name="WeekdayPanel" Margin="0,0,0,16"/>
 

@@ -84,3 +84,13 @@
 
 ### 引き継ぎ時にまず読むべきファイル
 `App.xaml.cs`（起動フロー）、`Services/ProcessMonitor.cs`（監視ロジック）、`Services/WatchdogService.cs`、`Services/ModeService.cs`（モード判定・時間計算）。
+
+### 追記（2026-07-26）: 全アカウントでの保護
+子供が別のWindowsアカウント（既に存在するもの）を使える場合、従来の実装（HKCU Runキー・`%APPDATA%`保存）はそのアカウントには効かない問題があったため対応した。
+
+- `Services/MachineWideSetupService.cs` — 新規。HKLM Runキーへの登録（管理者権限必須）と、`%ProgramData%\MedicalSchoolApp.Windows\`への設定・使用履歴の共有保存を扱う。
+- `SettingsService.AppDataDir`（および`Watchdog`側の同名ロジック）は、`%ProgramData%\MedicalSchoolApp.Windows\`フォルダが**存在するかどうか**で保存先を自動判定する（存在すれば共有モード、無ければ従来の`%APPDATA%`）。共有モードでは60分の上限もPC全体で共有される（アカウントを切り替えての抜け道を防止）。
+- 有効化はUI(`ParentSettingsWindow`)の「全アカウントでの保護」ボタンから。本体exeを`--register-machine-wide`引数付きでUAC昇格再起動し、その中でHKLM書き込み＋ProgramDataのACL付与(`icacls ... /grant Users:(OI)(CI)M`)を行う。管理者権限が無い場合は静かに失敗する（例外を握りつぶし、`IsMachineWideEnabled`はfalseのまま）よう作ってある。
+- HKLMとHKCUの二重登録による多重起動を防ぐため、`App.xaml.cs`に名前付きMutexでの単一インスタンス化と、共有モード時はHKCU側の自動起動を明示的に解除するロジックを追加した。
+- Watchdogの相互監視は`Process.SessionId`でフィルタするようにした（複数アカウント同時ログイン時に他アカウントのプロセスを「自分の本体/Watchdogが生きている」と誤認しないため）。
+- 実機で「管理者権限なしで`--register-machine-wide`を叩くと静かに失敗し、クラッシュしないこと」「通常起動でWatchdogが連携すること」は検証済み。**UAC昇格を伴う実際の有効化フロー（管理者パスワード入力を含む）はこのセッションのツールでは対話操作できないため未検証**。実機で保護者が一度試す必要がある。

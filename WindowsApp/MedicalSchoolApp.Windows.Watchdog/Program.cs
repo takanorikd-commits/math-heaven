@@ -14,9 +14,30 @@ internal static class Program
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "MedicalSchoolAppWindowsWatchdog";
     private static readonly TimeSpan RelaunchCooldown = TimeSpan.FromSeconds(3);
+    private static readonly int CurrentSessionId = Process.GetCurrentProcess().SessionId;
 
-    private static string AppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MedicalSchoolApp.Windows");
+    /// <summary>メインアプリと同じ規則: ProgramData配下(共有)が存在すればそちらを優先する。</summary>
+    private static string AppDataDir
+    {
+        get
+        {
+            var sharedDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "MedicalSchoolApp.Windows");
+            if (Directory.Exists(sharedDir))
+            {
+                return sharedDir;
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "MedicalSchoolApp.Windows");
+        }
+    }
+
+    /// <summary>全アカウント共有(ProgramData)モードが有効か。この場合HKLM側がRunキーを担当するのでHKCUには自己登録しない。</summary>
+    private static bool IsMachineWideMode => Directory.Exists(
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MedicalSchoolApp.Windows"));
 
     private static string ShutdownFlagPath => Path.Combine(AppDataDir, "shutdown.flag");
     private static string LogPath => Path.Combine(AppDataDir, "watchdog.log");
@@ -28,7 +49,10 @@ internal static class Program
         // 起動時に前回セッションの古いフラグが残っていたら消しておく
         TryDeleteStaleFlag();
 
-        RegisterAutostart();
+        if (!IsMachineWideMode)
+        {
+            RegisterAutostart();
+        }
         Log("Watchdog started.");
 
         var lastRelaunchAttempt = DateTime.MinValue;
@@ -43,7 +67,11 @@ internal static class Program
                     break;
                 }
 
-                var mainRunning = Process.GetProcessesByName(MainProcessName).Any(p => !SafeHasExited(p));
+                // 同じセッション(同じログインアカウント)内のプロセスのみを見る。
+                // 複数アカウントが同時ログインしていても、他アカウントのプロセスを
+                // 「自分のセッションの本体が生きている」と誤認しないようにする。
+                var mainRunning = Process.GetProcessesByName(MainProcessName)
+                    .Any(p => !SafeHasExited(p) && SafeSessionId(p) == CurrentSessionId);
                 if (!mainRunning && DateTime.Now - lastRelaunchAttempt > RelaunchCooldown)
                 {
                     lastRelaunchAttempt = DateTime.Now;
@@ -63,6 +91,12 @@ internal static class Program
     {
         try { return p.HasExited; }
         catch { return true; }
+    }
+
+    private static int SafeSessionId(Process p)
+    {
+        try { return p.SessionId; }
+        catch { return -1; }
     }
 
     private static void RelaunchMainApp()

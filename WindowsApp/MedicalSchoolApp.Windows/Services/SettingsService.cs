@@ -8,8 +8,28 @@ public static class SettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public static string AppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MedicalSchoolApp.Windows");
+    /// <summary>
+    /// 「全アカウントで保護」が有効な場合は%ProgramData%配下（全ユーザー共有）、
+    /// そうでなければ従来通り%APPDATA%配下（アカウント専用）を使う。
+    /// ProgramData側のフォルダは MachineWideSetupService が管理者権限で作成・ACL付与する。
+    /// </summary>
+    public static string AppDataDir
+    {
+        get
+        {
+            var sharedDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "MedicalSchoolApp.Windows");
+            if (Directory.Exists(sharedDir))
+            {
+                return sharedDir;
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "MedicalSchoolApp.Windows");
+        }
+    }
 
     private static string SettingsPath => Path.Combine(AppDataDir, "settings.json");
 

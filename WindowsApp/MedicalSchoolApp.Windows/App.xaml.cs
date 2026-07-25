@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using MedicalSchoolApp.Windows.Services;
@@ -12,16 +13,54 @@ public partial class App : System.Windows.Application
     private static BlockWindow? _blockWindow;
     private DispatcherTimer? _monitorTimer;
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private Mutex? _singleInstanceMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        // 想定外の例外でクラッシュダイアログを子供に見せたり、監視が止まったままにならないようにする
+        // （Watchdogがいずれ再起動するが、それまでの間だけでも静かに終了する）
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            ex.Handled = true;
+            Shutdown();
+        };
+
+        // UAC昇格された「全アカウントで保護」の登録/解除専用モード。UIは出さず即終了する。
+        if (e.Args.Contains(MachineWideSetupService.RegisterArg))
+        {
+            RunElevatedTaskAndExit(MachineWideSetupService.RunElevatedRegistration);
+            return;
+        }
+        if (e.Args.Contains(MachineWideSetupService.UnregisterArg))
+        {
+            RunElevatedTaskAndExit(MachineWideSetupService.RunElevatedUnregistration);
+            return;
+        }
+
+        // 同一セッション内での二重起動を防ぐ（全アカウント保護でHKLM/HKCUが両方登録されていた場合の保険も兼ねる）
+        _singleInstanceMutex = new Mutex(true, "Local\\MedicalSchoolAppWindows_SingleInstance", out var createdNew);
+        if (!createdNew)
+        {
+            Shutdown();
+            return;
+        }
+
         // 前回セッションの意図的終了フラグが残っていたら消す（通常起動として扱う）
         WatchdogService.ClearStaleShutdownFlag();
 
-        AutostartService.Apply(AppState.Settings.AutostartEnabled);
-        WatchdogService.ApplyAutostart(AppState.Settings.AutostartEnabled);
+        if (MachineWideSetupService.IsMachineWideEnabled)
+        {
+            // HKLM側が全アカウント分の自動起動を担当するので、このアカウント専用のHKCU登録は消しておく（二重起動防止）
+            AutostartService.Apply(false);
+            WatchdogService.ApplyAutostart(false);
+        }
+        else
+        {
+            AutostartService.Apply(AppState.Settings.AutostartEnabled);
+            WatchdogService.ApplyAutostart(AppState.Settings.AutostartEnabled);
+        }
         WatchdogService.EnsureRunning();
 
         _dashboardWindow = new DashboardWindow();
@@ -108,6 +147,19 @@ public partial class App : System.Windows.Application
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
         }
+        _singleInstanceMutex?.ReleaseMutex();
         base.OnExit(e);
+    }
+
+    private void RunElevatedTaskAndExit(Action task)
+    {
+        try
+        {
+            task();
+        }
+        finally
+        {
+            Shutdown();
+        }
     }
 }

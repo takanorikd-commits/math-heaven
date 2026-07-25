@@ -14,6 +14,7 @@ public static class WatchdogService
     private const string WatchdogProcessName = "MedicalSchoolApp.Windows.Watchdog";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "MedicalSchoolAppWindowsWatchdog";
+    private static readonly int CurrentSessionId = Process.GetCurrentProcess().SessionId;
 
     public static string ShutdownFlagPath => Path.Combine(SettingsService.AppDataDir, "shutdown.flag");
 
@@ -68,11 +69,13 @@ public static class WatchdogService
         }
     }
 
+    /// <summary>同じセッション(同じログインアカウント)のWatchdogが生きているかだけを見る。
+    /// 他アカウントのWatchdogを自分のものと誤認しないようにする。</summary>
     public static bool IsRunning()
     {
         return Process.GetProcessesByName(WatchdogProcessName).Any(p =>
         {
-            try { return !p.HasExited; }
+            try { return !p.HasExited && p.SessionId == CurrentSessionId; }
             catch { return false; }
         });
     }

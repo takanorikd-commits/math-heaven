@@ -55,6 +55,63 @@ public partial class ParentSettingsWindow : Window
 
         RefreshAllowedAppsList();
         RebuildWeekdayPanel();
+        RefreshMachineWideStatus();
+    }
+
+    private void RefreshMachineWideStatus()
+    {
+        if (MachineWideSetupService.IsMachineWideEnabled)
+        {
+            MachineWideStatusText.Text = "状態: 有効（全アカウントで保護中）";
+            MachineWideStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81));
+            MachineWideToggleButton.Content = "このアカウント専用に戻す";
+            MachineWideToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x41, 0x55));
+        }
+        else
+        {
+            MachineWideStatusText.Text = "状態: 無効（このアカウントのみ保護中）";
+            MachineWideStatusText.Foreground = System.Windows.Media.Brushes.Gray;
+            MachineWideToggleButton.Content = "全アカウントで保護を有効にする";
+            MachineWideToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3B, 0x82, 0xF6));
+        }
+    }
+
+    private void MachineWideToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        MachineWideMessageText.Text = "";
+        var enabling = !MachineWideSetupService.IsMachineWideEnabled;
+
+        var confirmMessage = enabling
+            ? "全アカウントで保護を有効にします。次のダイアログで管理者の許可（UAC）が必要です。続けますか？"
+            : "このアカウント専用に戻します。他のアカウントは保護されなくなります。次のダイアログで管理者の許可（UAC）が必要です。続けますか？";
+        if (MessageBox.Show(confirmMessage, "全アカウントでの保護", MessageBoxButton.OKCancel) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        var success = enabling
+            ? MachineWideSetupService.EnableMachineWide()
+            : MachineWideSetupService.DisableMachineWide();
+
+        if (!success)
+        {
+            MachineWideMessageText.Text = "管理者の許可が得られなかったため、変更されませんでした。";
+            MachineWideMessageText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+            return;
+        }
+
+        if (enabling)
+        {
+            // 現在の設定・使用履歴を新しい共有フォルダへ引き継ぐ
+            AppState.SaveSettings();
+            AppState.SaveUsage();
+        }
+
+        RefreshMachineWideStatus();
+        MachineWideMessageText.Text = enabling
+            ? "有効にしました。他のアカウントでは次回ログイン時から自動的に保護されます。"
+            : "無効にしました。このアカウントのみ、次回起動時から通常の自動起動に戻ります。";
+        MachineWideMessageText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81));
     }
 
     private void RefreshAllowedAppsList()
@@ -194,8 +251,12 @@ public partial class ParentSettingsWindow : Window
         AppState.Settings.AutostartEnabled = AutostartCheckBox.IsChecked ?? true;
 
         AppState.SaveSettings();
-        AutostartService.Apply(AppState.Settings.AutostartEnabled);
-        WatchdogService.ApplyAutostart(AppState.Settings.AutostartEnabled);
+        if (!MachineWideSetupService.IsMachineWideEnabled)
+        {
+            // 全アカウント保護が有効な場合はHKLM側が自動起動を担当するため、HKCU側は触らない
+            AutostartService.Apply(AppState.Settings.AutostartEnabled);
+            WatchdogService.ApplyAutostart(AppState.Settings.AutostartEnabled);
+        }
         AppState.RaiseUpdated();
 
         MessageBox.Show("保存しました。", "保護者設定");
