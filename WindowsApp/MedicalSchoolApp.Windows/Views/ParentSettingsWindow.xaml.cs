@@ -398,4 +398,13 @@ public partial class ParentSettingsWindow : Window
         AppState.RaiseUpdated();
         MessageBox.Show("本日の延長時間を0分にリセットしました。", "リセット完了");
     }
+
+    private void ResetUsedMinutesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var today = AppState.TodayUsage;
+        today.UsedMinutes = 0;
+        AppState.SaveUsage();
+        AppState.RaiseUpdated();
+        MessageBox.Show("本日の使用時間を0分にリセットしました。", "リセット完了");
+    }
 }
