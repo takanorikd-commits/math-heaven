@@ -31,6 +31,7 @@ interface SettingsRepository {
     val dailyUsageStatsFlow: Flow<Pair<Long, Int>>
     val baseTimeFlow: Flow<Int?>
     val studySchedulesFlow: Flow<List<StudySchedule>>
+    val isPseudoRestrictionFlow: Flow<Boolean>
 
     suspend fun setStartDate(date: Long)
     suspend fun setParentPassword(password: String)
@@ -45,6 +46,7 @@ interface SettingsRepository {
     suspend fun getTodayPlayUsageMs(): Long
     suspend fun setBaseTime(minutes: Int)
     suspend fun setStudySchedules(schedules: List<StudySchedule>)
+    suspend fun setPseudoRestriction(active: Boolean)
     fun isStudyTimeNow(): Boolean
 }
 
@@ -62,6 +64,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
         val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
         val STUDY_SCHEDULES = stringPreferencesKey("study_schedules") // JSON list
+        val IS_PSEUDO_RESTRICTION = booleanPreferencesKey("is_pseudo_restriction")
 
         val defaultAllowedPackages = setOf(
             "com.android.dialer",
@@ -135,6 +138,10 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val json = preferences[STUDY_SCHEDULES] ?: "[]"
         val type = object : TypeToken<List<StudySchedule>>() {}.type
         gson.fromJson(json, type)
+    }
+
+    override val isPseudoRestrictionFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[IS_PSEUDO_RESTRICTION] ?: false
     }
 
     override suspend fun setStartDate(date: Long) {
@@ -265,6 +272,12 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     override suspend fun setStudySchedules(schedules: List<StudySchedule>) {
         context.dataStore.edit { preferences ->
             preferences[STUDY_SCHEDULES] = gson.toJson(schedules)
+        }
+    }
+
+    override suspend fun setPseudoRestriction(active: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[IS_PSEUDO_RESTRICTION] = active
         }
     }
 

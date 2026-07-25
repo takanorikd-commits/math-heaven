@@ -23,6 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import android.os.PowerManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -178,8 +181,10 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
     val context = LocalContext.current
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
     val countdown by viewModel.commonTestCountdown.collectAsState()
+    val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
     
     var isAccessibilityEnabled by remember { mutableStateOf(false) }
+    var isIgnoringBatteryOptimizations by remember { mutableStateOf(true) }
 
     // Refresh state
     LaunchedEffect(Unit) {
@@ -189,11 +194,14 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
             
             // Check accessibility status
             val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-            val enabledServices = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_GENERIC)
+            val enabledServices = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             isAccessibilityEnabled = enabledServices.any { 
-                it.resolveInfo.serviceInfo.packageName == context.packageName && 
-                it.resolveInfo.serviceInfo.name == AppMonitorService::class.java.name 
+                it.resolveInfo.serviceInfo.packageName == context.packageName
             }
+
+            // Check battery optimization status
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            isIgnoringBatteryOptimizations = pm.isIgnoringBatteryOptimizations(context.packageName)
             
             delay(10000)
         }
@@ -208,12 +216,64 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        if (isPseudoActive) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Text(
+                    text = "【疑似制限モード有効中】遊びアプリはすべてブロックされます",
+                    color = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        if (!isIgnoringBatteryOptimizations) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(
+                        text = "重要: アプリの制限が勝手に切れるのを防ぐため、「バッテリーの最適化」を解除してください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    TextButton(onClick = {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        }
+                        context.startActivity(intent)
+                    }) {
+                        Text("今すぐ設定する")
+                    }
+                }
+            }
+        }
+
+        // Samsung specific hint
+        if (android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = "ヒント (Samsung端末): 「設定 > バッテリー > 制限のないアプリ」にこのアプリを追加すると、より安定します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+        }
+
         Text("本日の遊びスマホ残り時間", style = MaterialTheme.typography.titleLarge)
         Text(
             text = "${remainingMinutes} 分",
             style = MaterialTheme.typography.displayLarge,
             fontWeight = FontWeight.Bold,
-            color = if (remainingMinutes <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            color = if (remainingMinutes <= 0 || isPseudoActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
@@ -222,12 +282,23 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             ) {
-                Text(
-                    text = "警告: 制限機能を有効にするには「ユーザー補助権限」が必要です。下のボタンから設定してください。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(8.dp)
-                )
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(
+                        text = "警告: 制限機能を動作させるには「ユーザー補助」と「使用状況アクセス」の両方の権限が必要です。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("ユーザー補助（制限機能）を有効にする")
+                    }
+                }
             }
         }
 
@@ -242,13 +313,25 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Pseudo Restriction Toggle Button
+        Button(
+            onClick = { viewModel.togglePseudoRestriction() },
+            colors = if (isPseudoActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                     else ButtonDefaults.buttonColors(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (isPseudoActive) "疑似制限モードを解除" else "疑似制限モード（テスト用）を開始")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }) {
+        }, modifier = Modifier.fillMaxWidth()) {
             Text("使用状況へのアクセス権限を設定")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedButton(
             onClick = onNavigateToSettings,
@@ -270,6 +353,7 @@ fun SettingsAuthScreen(viewModel: MainViewModel, onAuthenticated: () -> Unit, on
     var failedAttempts by remember { mutableIntStateOf(0) }
     var lockedUntilMs by remember { mutableStateOf(0L) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val scrollState = rememberScrollState()
 
     val isLocked = nowMs < lockedUntilMs
     LaunchedEffect(isLocked) {
@@ -282,10 +366,13 @@ fun SettingsAuthScreen(viewModel: MainViewModel, onAuthenticated: () -> Unit, on
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
+            .imePadding()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Top
     ) {
+        Spacer(modifier = Modifier.height(32.dp))
         if (!isPasswordSet) {
             Text("保護者パスワードの初期設定", style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(
@@ -409,73 +496,113 @@ fun StudyScheduleScreen(viewModel: MainViewModel) {
         items(days) { (dayName, dayInt) ->
             val daySchedule = schedules.find { it.dayOfWeek == dayInt } ?: StudySchedule(dayInt)
             
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "${dayName}曜日", style = MaterialTheme.typography.titleMedium)
-                    
-                    daySchedule.ranges.forEachIndexed { index, range ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Text("${String.format("%02d:%02d", range.startHour, range.startMinute)} - ${String.format("%02d:%02d", range.endHour, range.endMinute)}")
-                            Spacer(modifier = Modifier.weight(1f))
-                            IconButton(onClick = {
-                                val newList = daySchedule.ranges.toMutableList().apply { removeAt(index) }
-                                updateDaySchedule(viewModel, schedules, dayInt, newList)
-                            }) {
-                                Icon(Icons.Default.Delete, contentDescription = "削除")
-                            }
-                        }
-                    }
+            StudyDayCard(
+                dayName = dayName,
+                ranges = daySchedule.ranges,
+                onUpdate = { newRanges ->
+                    updateDaySchedule(viewModel, schedules, dayInt, newRanges)
+                }
+            )
+        }
+    }
+}
 
-                    var showTimePicker by remember { mutableStateOf(false) }
-                    if (showTimePicker) {
-                        // Simplified time entry for brevity in this UI
-                        // In a real app, use Material TimePicker
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var startH by remember { mutableStateOf("18") }
-                            var startM by remember { mutableStateOf("00") }
-                            var endH by remember { mutableStateOf("21") }
-                            var endM by remember { mutableStateOf("00") }
-                            
-                            Column {
-                                Row {
-                                    TextField(value = startH, onValueChange = {startH = it}, modifier = Modifier.width(60.dp), label = {Text("開")})
-                                    TextField(value = startM, onValueChange = {startM = it}, modifier = Modifier.width(60.dp))
-                                }
-                                Text("〜")
-                                Row {
-                                    TextField(value = endH, onValueChange = {endH = it}, modifier = Modifier.width(60.dp), label = {Text("終")})
-                                    TextField(value = endM, onValueChange = {endM = it}, modifier = Modifier.width(60.dp))
-                                }
-                            }
-                            
-                            Button(onClick = {
-                                val sH = startH.toIntOrNull() ?: 0
-                                val sM = startM.toIntOrNull() ?: 0
-                                val eH = endH.toIntOrNull() ?: 0
-                                val eM = endM.toIntOrNull() ?: 0
-                                
-                                val newList = daySchedule.ranges.toMutableList().apply {
-                                    add(StudyTimeRange(sH, sM, eH, eM))
-                                }
-                                updateDaySchedule(viewModel, schedules, dayInt, newList)
-                                showTimePicker = false
-                            }) {
-                                Text("追加")
-                            }
-                        }
-                    } else {
-                        TextButton(onClick = { showTimePicker = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "追加")
-                            Text("勉強時間を追加")
+@Composable
+fun StudyDayCard(dayName: String, ranges: List<StudyTimeRange>, onUpdate: (List<StudyTimeRange>) -> Unit) {
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "${dayName}曜日", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("追加")
+                }
+            }
+            
+            if (ranges.isEmpty()) {
+                Text("勉強時間の設定はありません", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            } else {
+                ranges.sortedBy { it.startHour * 60 + it.startMinute }.forEachIndexed { index, range ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        val timeText = String.format(java.util.Locale.US, "%02d:%02d 〜 %02d:%02d", 
+                            range.startHour, range.startMinute, 
+                            range.endHour, range.endMinute)
+                        Text(text = timeText, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(onClick = {
+                            val newList = ranges.toMutableList().apply { removeAt(index) }
+                            onUpdate(newList)
+                        }) {
+                            Icon(Icons.Default.Delete, contentDescription = "削除", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
             }
         }
     }
+
+    if (showAddDialog) {
+        StudyTimeInputDialog(
+            onConfirm = { newRange ->
+                onUpdate(ranges + newRange)
+                showAddDialog = false
+            },
+            onDismiss = { showAddDialog = false }
+        )
+    }
+}
+
+@Composable
+fun StudyTimeInputDialog(onConfirm: (StudyTimeRange) -> Unit, onDismiss: () -> Unit) {
+    var startH by remember { mutableStateOf("18") }
+    var startM by remember { mutableStateOf("00") }
+    var endH by remember { mutableStateOf("21") }
+    var endM by remember { mutableStateOf("00") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(16.dp).imePadding(),
+        title = { Text("勉強時間を追加") },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("開始 ", modifier = Modifier.width(50.dp))
+                    OutlinedTextField(value = startH, onValueChange = { if(it.length<=2) startH = it }, modifier = Modifier.width(65.dp), singleLine = true)
+                    Text(" : ")
+                    OutlinedTextField(value = startM, onValueChange = { if(it.length<=2) startM = it }, modifier = Modifier.width(65.dp), singleLine = true)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("終了 ", modifier = Modifier.width(50.dp))
+                    OutlinedTextField(value = endH, onValueChange = { if(it.length<=2) endH = it }, modifier = Modifier.width(65.dp), singleLine = true)
+                    Text(" : ")
+                    OutlinedTextField(value = endM, onValueChange = { if(it.length<=2) endM = it }, modifier = Modifier.width(65.dp), singleLine = true)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val sH = startH.toIntOrNull() ?: 0
+                val sM = startM.toIntOrNull() ?: 0
+                val eH = endH.toIntOrNull() ?: 0
+                val eM = endM.toIntOrNull() ?: 0
+                onConfirm(StudyTimeRange(sH.coerceIn(0,23), sM.coerceIn(0,59), eH.coerceIn(0,23), eM.coerceIn(0,59)))
+            }) { Text("追加") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        }
+    )
 }
 
 private fun updateDaySchedule(viewModel: MainViewModel, allSchedules: List<StudySchedule>, day: Int, newRanges: List<StudyTimeRange>) {
@@ -534,8 +661,14 @@ fun PasswordSettingsScreen(viewModel: MainViewModel) {
     var confirmPassword by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successMessage by remember { mutableStateOf<String?>(null) }
+    val scrollState = rememberScrollState()
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(scrollState)
+        .imePadding()
+        .padding(16.dp)
+    ) {
         Text("保護者パスワードの変更", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -594,13 +727,19 @@ fun TimeSettingsScreen(viewModel: MainViewModel) {
     val baseTimeMins by viewModel.baseTimeMins.collectAsState()
     val startDate by viewModel.startDate.collectAsState()
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis())
     val displayBaseMins = baseTimeMins ?: autoBaseMins
 
     var textInputValue by remember(displayBaseMins) { mutableStateOf(displayBaseMins.toString()) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(scrollState)
+        .imePadding()
+        .padding(16.dp)
+    ) {
         Text("基本の制限時間 (分)", style = MaterialTheme.typography.titleMedium)
 
         if (baseTimeMins == null) {

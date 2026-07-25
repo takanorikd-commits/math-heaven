@@ -11,6 +11,13 @@ import com.example.medicalschoolapp.util.TimeCalculator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
+
 class AppMonitorService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
@@ -20,12 +27,36 @@ class AppMonitorService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AppMonitorService"
+        private const val CHANNEL_ID = "monitor_service_channel"
+        private const val NOTIFICATION_ID = 1001
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Service connected")
         repository = LocalSettingsRepository(applicationContext)
+        startForegroundService()
+    }
+
+    private fun startForegroundService() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "アプリ監視サービス",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("制限機能が稼働中")
+            .setContentText("お子様のスマホ利用を安全に守っています")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -56,16 +87,18 @@ class AppMonitorService : AccessibilityService() {
         
         serviceScope.launch {
             val isPlay = repository.isAppPlayCategory(packageName)
-            Log.d(TAG, "App $packageName categorized as Play: $isPlay")
+            val isPseudoActive = repository.isPseudoRestrictionFlow.first()
             
-            if (isPlay) {
+            Log.d(TAG, "App $packageName: isPlay=$isPlay, isPseudoActive=$isPseudoActive")
+            
+            if (isPlay || isPseudoActive) {
                 // Initial check
                 checkAndBlockIfTimeUp(packageName)
 
                 // Periodic check
                 monitorJob = launch {
                     while (isActive) {
-                        delay(5000) // check more frequently for better blocking
+                        delay(2000) // 2秒ごとにチェック（より頻繁に）
                         checkAndBlockIfTimeUp(packageName)
                     }
                 }
@@ -74,31 +107,29 @@ class AppMonitorService : AccessibilityService() {
     }
 
     private suspend fun checkAndBlockIfTimeUp(packageName: String) {
+        val now = System.currentTimeMillis()
         val usedTimeMs = repository.getTodayPlayUsageMs()
         val startDateMs = repository.startDateFlow.first()
         val stats = repository.dailyUsageStatsFlow.first()
         val manualBaseMins = repository.baseTimeFlow.first()
         val extendedTimeMins = stats.second
-        val now = System.currentTimeMillis()
 
         val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now)
 
-        val remainingMs = TimeCalculator.getRemainingTimeTodayMs(
-            startDateMs = startDateMs,
-            currentDateMs = now,
-            usedTimeMs = usedTimeMs,
-            extendedTimeMins = extendedTimeMins,
-            baseAllowedMins = baseAllowedMins
-        )
+        val totalAllowedMins = baseAllowedMins + extendedTimeMins
+        val totalAllowedMs = totalAllowedMins * 60 * 1000L
+        val remainingMs = totalAllowedMs - usedTimeMs
 
-        Log.d(TAG, "Checking $packageName: used=${usedTimeMs/1000}s, remaining=${remainingMs/1000}s")
+        Log.d(TAG, "Checking $packageName: used=${usedTimeMs/1000}s, totalAllowed=${totalAllowedMs/1000}s, remaining=${remainingMs/1000}s")
 
         // Update cache
         repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(now), usedTimeMs)
 
+        val isPseudoActive = repository.isPseudoRestrictionFlow.first()
         val isStudyTime = repository.isStudyTimeNow()
-        if (isStudyTime) {
-            Log.w(TAG, "BLOCKING $packageName - It's study time!")
+        
+        if (isPseudoActive || isStudyTime) {
+            Log.w(TAG, "BLOCKING $packageName - Restriction active (Pseudo: $isPseudoActive, Study: $isStudyTime)")
             launchBlockActivity()
             return
         }

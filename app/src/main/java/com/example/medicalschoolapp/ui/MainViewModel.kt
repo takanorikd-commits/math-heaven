@@ -24,6 +24,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val studySchedules = repository.studySchedulesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val isPseudoRestrictionActive = repository.isPseudoRestrictionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // Bumped whenever we want remainingTimeMs to re-query live usage (periodic ticker,
     // or right after a temp password grants extra time) rather than relying only on
@@ -94,6 +95,13 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     fun updateStudySchedules(schedules: List<StudySchedule>) {
         viewModelScope.launch {
             repository.setStudySchedules(schedules)
+        }
+    }
+
+    fun togglePseudoRestriction() {
+        viewModelScope.launch {
+            val current = repository.isPseudoRestrictionFlow.first()
+            repository.setPseudoRestriction(!current)
         }
     }
 

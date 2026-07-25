@@ -79,6 +79,8 @@ fun BlockScreen(
         }
     }
 
+    val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -86,8 +88,22 @@ fun BlockScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        if (isPseudoActive) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Text(
+                    text = "【疑似制限モード有効中】テスト目的のため解除ボタンを表示しています",
+                    color = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Text(
-            text = "本日の遊びスマホ時間は終了しました",
+            text = if (isPseudoActive) "疑似制限モード実行中" else "本日の遊びスマホ時間は終了しました",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onErrorContainer,
             modifier = Modifier.padding(bottom = 32.dp)
@@ -161,6 +177,20 @@ fun BlockScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("ホーム画面に戻る")
+        }
+
+        if (isPseudoActive) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = { 
+                    viewModel.togglePseudoRestriction()
+                    (context as? ComponentActivity)?.finish()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("疑似制限モードを終了する")
+            }
         }
     }
 }
