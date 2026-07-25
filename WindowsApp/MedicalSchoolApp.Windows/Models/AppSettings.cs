@@ -4,13 +4,13 @@ public class AppSettings
 {
     public static readonly string[] WeekdayKeys = { "mon", "tue", "wed", "thu", "fri", "sat", "sun" };
 
-    public int DailyLimitMinutes { get; set; } = 60;
+    public int DailyLimitMinutes { get; set; } = 90;
 
     public Dictionary<string, List<StudyTimeRange>> WeekdayStudyTimes { get; set; } = new();
 
     /// <summary>
     /// 許可アプリ（実行ファイル名、拡張子込み、小文字）。ここに無いアプリは
-    /// 「遊び」とみなされ、60分のカウント対象・制限モードでの終了対象になる。
+    /// 「遊び」とみなされ、DailyLimitMinutesのカウント対象・制限モードでの終了対象になる。
     /// </summary>
     public List<string> AllowedApps { get; set; } = new();
 

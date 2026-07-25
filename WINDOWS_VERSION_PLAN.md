@@ -9,7 +9,7 @@
 **最終更新: 2026-07-26**
 
 ### 何を作っているか
-子供のWindows PCで、遊び目的のアプリ使用を1日60分に制限し、曜日別の勉強時間中はさらに制限、制限モード中はアプリ内蔵のChatGPT画面のみ使用可能にする常駐アプリ。Android版とは別物で、同期はしない（将来課題）。
+子供のWindows PCで、遊び目的のアプリ使用を1日の上限時間（デフォルト90分、保護者設定画面から変更可能）に制限し、曜日別の勉強時間中はさらに制限、制限モード中はアプリ内蔵のChatGPT画面のみ使用可能にする常駐アプリ。Android版とは別物で、同期はしない（将来課題）。
 
 ### ステータス
 MVPの機能はすべて実装・ビルド確認済み。一部（UAC昇格を伴うフロー等）は実機での対話操作が必要なため未検証。下記「未検証」を参照。
@@ -63,7 +63,7 @@ dotnet publish WindowsApp/MedicalSchoolApp.Windows.Watchdog/MedicalSchoolApp.Win
 
 ### 設定データモデル（`Models/AppSettings.cs`）
 ```
-DailyLimitMinutes: int = 60
+DailyLimitMinutes: int = 90  // 2026-07-26: 60→90に変更。保護者設定画面の「1日の使用可能時間（分）」欄からいつでも変更可能
 WeekdayStudyTimes: Dictionary<string, List<StudyTimeRange>>  // key: "mon".."sun"、StudyTimeRangeはStart/End("HH:mm"文字列)
 AllowedApps: List<string>  // 実行ファイル名（例: "winword.exe"）。ここに無いものは制限モードで終了対象
 ParentPasswordHash / ParentPasswordSalt: string  // 初期パスワードは"0000"
