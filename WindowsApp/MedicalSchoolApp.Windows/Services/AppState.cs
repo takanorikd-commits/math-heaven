@@ -17,6 +17,12 @@ public static class AppState
     /// </summary>
     public static bool PseudoRestrictedMode { get; set; }
 
+    /// <summary>
+    /// 勉強時間中の一時パスワード適用によるバイパス終了時刻。
+    /// この時刻までは勉強時間帯であっても制限を一時解除する。
+    /// </summary>
+    public static DateTime? StudyTimeBypassedUntil { get; set; }
+
     public static event Action? Updated;
 
     public static void RaiseUpdated() => Updated?.Invoke();

@@ -20,10 +20,23 @@ public static class ProcessMonitor
     /// 誤って閉じるとOSやシェル、ChatGPT画面(WebView2)、Chrome Remote Desktopが
     /// 壊れるおそれのあるプロセス。常に保護する。
     /// </summary>
-    private static readonly HashSet<string> SafeList = new(StringComparer.OrdinalIgnoreCase)
+    public static readonly HashSet<string> SafeList = new(StringComparer.OrdinalIgnoreCase)
     {
-        // OS/シェル
-        "explorer.exe", "dwm.exe", "sihost.exe", "shellexperiencehost.exe",
+        "medicalschoolapp.windows.exe",
+        "medicalschoolapp.windows.watchdog.exe",
+        "explorer.exe",
+        "taskmgr.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "conhost.exe",
+        "windowsterminal.exe",
+        "antigravity.exe",
+        "agy.exe",
+        "node.exe",
+        "code.exe",
+        "devenv.exe",
+        "dwm.exe", "sihost.exe", "shellexperiencehost.exe",
         "searchhost.exe", "startmenuexperiencehost.exe", "textinputhost.exe",
         "lockapp.exe", "logonui.exe", "consent.exe", "systemsettings.exe",
         "applicationframehost.exe",

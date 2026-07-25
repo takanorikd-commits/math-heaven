@@ -29,7 +29,14 @@ public partial class DashboardWindow : Window
         var nextSlot = ModeService.NextStudySlot(settings, now);
         var examDiff = ModeService.TimeUntilExam(settings, now);
 
-        RemainingMinutesText.Text = $"{Math.Max(0, Math.Round(remaining))} 分";
+        if (today.ExtraMinutes > 0)
+        {
+            RemainingMinutesText.Text = $"{Math.Max(0, Math.Round(remaining))} 分 (基本{settings.DailyLimitMinutes}分 + 延長{Math.Round(today.ExtraMinutes)}分)";
+        }
+        else
+        {
+            RemainingMinutesText.Text = $"{Math.Max(0, Math.Round(remaining))} 分";
+        }
         NextStudySlotText.Text = nextSlot ?? "予定なし";
 
         if (examDiff is { } diff)
@@ -56,6 +63,20 @@ public partial class DashboardWindow : Window
     private void OpenChatGptButton_Click(object sender, RoutedEventArgs e)
     {
         App.ShowChatGptWindow();
+    }
+
+    private void TogglePseudoRestrictedButton_Click(object sender, RoutedEventArgs e)
+    {
+        AppState.PseudoRestrictedMode = !AppState.PseudoRestrictedMode;
+        if (AppState.PseudoRestrictedMode)
+        {
+            App.ShowBlockWindow();
+        }
+        else
+        {
+            App.HideBlockWindow();
+        }
+        AppState.RaiseUpdated();
     }
 
     private void OpenSettingsButton_Click(object sender, RoutedEventArgs e)

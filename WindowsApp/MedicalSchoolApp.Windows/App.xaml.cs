@@ -39,12 +39,34 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        // 同一セッション内での二重起動を防ぐ（全アカウント保護でHKLM/HKCUが両方登録されていた場合の保険も兼ねる）
+        // 同一セッション内での二重起動を防ぐ（すでに起動している場合は常駐中の本体のダッシュボードを前面表示する）
         _singleInstanceMutex = new Mutex(true, "Local\\MedicalSchoolAppWindows_SingleInstance", out var createdNew);
         if (!createdNew)
         {
+            try
+            {
+                using var existingEvent = EventWaitHandle.OpenExisting("Local\\MedicalSchoolAppWindows_ShowDashboard");
+                existingEvent.Set();
+            }
+            catch
+            {
+                // ignore
+            }
             Shutdown();
             return;
+        }
+
+        try
+        {
+            var showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\MedicalSchoolAppWindows_ShowDashboard");
+            ThreadPool.RegisterWaitForSingleObject(showEvent, (_, _) =>
+            {
+                Dispatcher.Invoke(ShowDashboardWindow);
+            }, null, -1, false);
+        }
+        catch
+        {
+            // ignore
         }
 
         // 前回セッションの意図的終了フラグが残っていたら消す（通常起動として扱う）

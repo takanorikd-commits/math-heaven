@@ -13,12 +13,16 @@
             <TextBlock Text="ChatGPTのみ使用できます" Foreground="#94A3B8" FontSize="14" HorizontalAlignment="Center" Margin="0,0,0,24"/>
 
             <Button x:Name="OpenChatGptButton" Content="💬 ChatGPTを開く" Height="48" FontSize="15"
-                    Background="#3B82F6" Foreground="White" BorderThickness="0" Margin="0,0,0,24"
+                    Background="#3B82F6" Foreground="White" BorderThickness="0" Margin="0,0,0,16"
                     Click="OpenChatGptButton_Click"/>
+
+            <Button x:Name="CancelPseudoRestrictedButton" Content="🧪 疑似制限モードを解除する（テスト用）" Height="48" FontSize="15" FontWeight="Bold"
+                    Background="#F59E0B" Foreground="White" BorderThickness="0" Margin="0,0,0,24" Visibility="Collapsed"
+                    Click="CancelPseudoRestrictedButton_Click"/>
 
             <Border Background="#1E293B" CornerRadius="12" Padding="20">
                 <StackPanel>
-                    <TextBlock Text="保護者に延長を依頼するか、一時パスワードを入力してください。" Foreground="#94A3B8" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <TextBlock Text="保護者パスワード または 一時パスワードを入力してください。" Foreground="#94A3B8" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,12"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -27,7 +31,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBox Grid.Column="0" x:Name="CodeBox" Padding="8" Background="#0F172A" Foreground="White" BorderBrush="#334155"
                                  KeyDown="CodeBox_KeyDown"/>
-                        <Button Grid.Column="2" x:Name="RedeemButton" Content="延長する" Padding="12,8" Background="#3B82F6" Foreground="White" BorderThickness="0"
+                        <Button Grid.Column="2" x:Name="RedeemButton" Content="解除・延長する" Padding="12,8" Background="#3B82F6" Foreground="White" BorderThickness="0"
                                 Click="RedeemButton_Click"/>
                     </Grid>
                     <TextBlock x:Name="RedeemMessageText" Margin="0,8,0,0" TextWrapping="Wrap"/>

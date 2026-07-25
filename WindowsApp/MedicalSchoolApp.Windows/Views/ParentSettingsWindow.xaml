@@ -88,13 +88,17 @@
                 <Button Content="変更する" Click="ChangePasswordButton_Click" Margin="0,0,0,4"/>
                 <TextBlock x:Name="PasswordChangeMessage" Foreground="#94A3B8" Margin="0,0,0,24"/>
 
-                <TextBlock Text="一時パスワードを発行" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
-                <TextBlock Text="延長する分数" Margin="0,0,0,4"/>
+                <TextBlock Text="一時パスワードを発行（有効期限なし・使い捨て）" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                <TextBlock Text="有効期限はなく1回使われると自動失効します。複数コードを事前発行して管理できます。" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="延長する分数（分）" Margin="0,0,0,4"/>
                 <TextBox x:Name="ExtendMinutesBox" Text="15" Margin="0,0,0,8"/>
-                <TextBlock Text="コードの有効期限（分）" Margin="0,0,0,4"/>
-                <TextBox x:Name="ValidMinutesBox" Text="15" Margin="0,0,0,8"/>
-                <Button Content="発行する" Click="IssueTempPasswordButton_Click" Margin="0,0,0,8"/>
-                <TextBlock x:Name="IssuedCodeText" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,32"/>
+                <Button Content="新しい一時パスワードを発行する" Click="IssueTempPasswordButton_Click" Margin="0,0,0,8"/>
+                <TextBlock x:Name="IssuedCodeText" FontSize="26" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+                <TextBlock Text="発行済みの未使用コード一覧" FontWeight="Bold" Margin="0,4,0,4"/>
+                <ListBox x:Name="TempPasswordsListBox" Height="90" Margin="0,0,0,4" Background="#1E293B" Foreground="White"/>
+                <Button Content="選択したコードを削除" Click="RemoveTempPasswordButton_Click" Margin="0,0,0,12" Background="#334155"/>
+                <Button Content="🔄 本日の延長時間をリセット（0分に戻す）" Click="ResetExtraMinutesButton_Click" Margin="0,0,0,32" Background="#334155"/>
             </StackPanel>
         </ScrollViewer>
     </Grid>

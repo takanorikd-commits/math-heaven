@@ -18,6 +18,7 @@ public class AppSettings
     public string ParentPasswordSalt { get; set; } = "";
 
     public TempPasswordInfo? TempPassword { get; set; }
+    public List<TempPasswordInfo> TempPasswords { get; set; } = new();
 
     /// <summary>共通テスト日時（Android版のデフォルトに合わせる）</summary>
     public DateTime ExamDate { get; set; } = new DateTime(2028, 1, 15, 9, 30, 0);

@@ -23,11 +23,20 @@ public static class ModeService
 
     private static bool TryParseTime(string s, out TimeSpan time)
     {
-        return TimeSpan.TryParseExact(s, "hh\\:mm", CultureInfo.InvariantCulture, out time);
+        if (string.IsNullOrWhiteSpace(s))
+        {
+            time = TimeSpan.Zero;
+            return false;
+        }
+        return TimeSpan.TryParse(s.Trim(), CultureInfo.InvariantCulture, out time);
     }
 
     public static bool IsStudyTime(AppSettings settings, DateTime now)
     {
+        if (AppState.StudyTimeBypassedUntil is { } bypassedUntil && now < bypassedUntil)
+        {
+            return false;
+        }
         var key = WeekdayKey(now);
         if (!settings.WeekdayStudyTimes.TryGetValue(key, out var ranges))
         {

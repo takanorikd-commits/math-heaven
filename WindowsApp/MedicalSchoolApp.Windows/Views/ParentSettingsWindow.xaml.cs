@@ -229,6 +229,7 @@ public partial class ParentSettingsWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var startBox = new TextBox { Text = ranges[index].Start, Padding = new Thickness(4) };
+            startBox.TextChanged += (_, _) => ranges[index].Start = startBox.Text;
             startBox.LostFocus += (_, _) => ranges[index].Start = startBox.Text;
             Grid.SetColumn(startBox, 0);
 
@@ -236,6 +237,7 @@ public partial class ParentSettingsWindow : Window
             Grid.SetColumn(tilde, 1);
 
             var endBox = new TextBox { Text = ranges[index].End, Padding = new Thickness(4) };
+            endBox.TextChanged += (_, _) => ranges[index].End = endBox.Text;
             endBox.LostFocus += (_, _) => ranges[index].End = endBox.Text;
             Grid.SetColumn(endBox, 2);
 
@@ -275,13 +277,13 @@ public partial class ParentSettingsWindow : Window
         AppState.SaveSettings();
         if (!MachineWideSetupService.IsMachineWideEnabled)
         {
-            // 全アカウント保護が有効な場合はHKLM側が自動起動を担当するため、HKCU側は触らない
             AutostartService.Apply(AppState.Settings.AutostartEnabled);
             WatchdogService.ApplyAutostart(AppState.Settings.AutostartEnabled);
         }
         AppState.RaiseUpdated();
 
-        MessageBox.Show("保存しました。", "保護者設定");
+        MessageBox.Show("設定を保存しました。", "保護者設定");
+        Close();
     }
 
     private void ChangePasswordButton_Click(object sender, RoutedEventArgs e)
@@ -309,6 +311,38 @@ public partial class ParentSettingsWindow : Window
         OldPasswordBox.Password = "";
         NewPasswordBox.Password = "";
         PasswordChangeMessage.Text = "パスワードを変更しました。";
+        RefreshAllowedAppsList();
+        RebuildWeekdayPanel();
+        RefreshMachineWideStatus();
+        RefreshTempPasswordsList();
+    }
+
+    private void RefreshTempPasswordsList()
+    {
+        _working.TempPasswords ??= new List<TempPasswordInfo>();
+
+        var settingsUsedHashes = AppState.Settings.TempPasswords?.Where(t => t.Used).Select(t => t.CodeHash).ToHashSet() ?? new HashSet<string>();
+        foreach (var t in _working.TempPasswords)
+        {
+            if (settingsUsedHashes.Contains(t.CodeHash))
+            {
+                t.Used = true;
+            }
+        }
+
+        _working.TempPasswords.RemoveAll(t => t.Used);
+        if (AppState.Settings.TempPasswords is not null)
+        {
+            AppState.Settings.TempPasswords.RemoveAll(t => t.Used);
+            AppState.SaveSettings();
+        }
+
+        var activeCodes = _working.TempPasswords
+            .Select(t => $"コード: {t.CodeDisplay} ({t.ExtendMinutes}分延長 - 発行: {t.CreatedAt:yyyy/MM/dd HH:mm})")
+            .ToList();
+
+        TempPasswordsListBox.ItemsSource = null;
+        TempPasswordsListBox.ItemsSource = activeCodes;
     }
 
     private void IssueTempPasswordButton_Click(object sender, RoutedEventArgs e)
@@ -318,24 +352,50 @@ public partial class ParentSettingsWindow : Window
             MessageBox.Show("延長する分数は1以上の数値を入力してください。", "入力エラー");
             return;
         }
-        if (!int.TryParse(ValidMinutesBox.Text, out var validMinutes) || validMinutes <= 0)
-        {
-            MessageBox.Show("有効期限は1以上の数値を入力してください。", "入力エラー");
-            return;
-        }
 
         var code = PasswordHasher.GenerateTempCode();
         var salt = PasswordHasher.GenerateSalt();
-        AppState.Settings.TempPassword = new TempPasswordInfo
+        var info = new TempPasswordInfo
         {
+            CodeDisplay = code,
             CodeHash = PasswordHasher.Hash(code, salt),
             Salt = salt,
             ExtendMinutes = extendMinutes,
-            ExpiresAt = DateTime.Now.AddMinutes(validMinutes),
+            CreatedAt = DateTime.Now,
+            ExpiresAt = DateTime.MaxValue,
             Used = false,
         };
+
+        _working.TempPasswords.Add(info);
+        AppState.Settings.TempPasswords = _working.TempPasswords;
         AppState.SaveSettings();
 
-        IssuedCodeText.Text = code;
+        RefreshTempPasswordsList();
+        IssuedCodeText.Text = $"新コード: {code} ({extendMinutes}分延長)";
+    }
+
+    private void RemoveTempPasswordButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TempPasswordsListBox.SelectedIndex >= 0)
+        {
+            var activeCodes = _working.TempPasswords.Where(t => !t.Used).ToList();
+            if (TempPasswordsListBox.SelectedIndex < activeCodes.Count)
+            {
+                var target = activeCodes[TempPasswordsListBox.SelectedIndex];
+                _working.TempPasswords.Remove(target);
+                AppState.Settings.TempPasswords = _working.TempPasswords;
+                AppState.SaveSettings();
+                RefreshTempPasswordsList();
+            }
+        }
+    }
+
+    private void ResetExtraMinutesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var today = AppState.TodayUsage;
+        today.ExtraMinutes = 0;
+        AppState.SaveUsage();
+        AppState.RaiseUpdated();
+        MessageBox.Show("本日の延長時間を0分にリセットしました。", "リセット完了");
     }
 }

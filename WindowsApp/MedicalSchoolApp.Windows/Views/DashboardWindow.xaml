@@ -60,12 +60,16 @@
         <Grid Grid.Row="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" x:Name="OpenChatGptButton" Content="💬 ChatGPTを開く" Height="48" FontSize="15" Click="OpenChatGptButton_Click"
+            <Button Grid.Column="0" x:Name="OpenChatGptButton" Content="💬 ChatGPTを開く" Height="48" FontSize="14" Click="OpenChatGptButton_Click"
                     Background="#3B82F6" Foreground="White" BorderThickness="0"/>
-            <Button Grid.Column="2" x:Name="OpenSettingsButton" Content="⚙️ 保護者設定" Height="48" FontSize="15" Click="OpenSettingsButton_Click"
+            <Button Grid.Column="2" x:Name="TogglePseudoRestrictedButton" Content="🧪 疑似制限" Height="48" FontSize="14" Click="TogglePseudoRestrictedButton_Click"
+                    Background="#F59E0B" Foreground="White" BorderThickness="0"/>
+            <Button Grid.Column="4" x:Name="OpenSettingsButton" Content="⚙️ 保護者設定" Height="48" FontSize="14" Click="OpenSettingsButton_Click"
                     Background="#334155" Foreground="White" BorderThickness="0"/>
         </Grid>
     </Grid>
