@@ -98,7 +98,8 @@
                 <TextBlock Text="発行済みの未使用コード一覧" FontWeight="Bold" Margin="0,4,0,4"/>
                 <ListBox x:Name="TempPasswordsListBox" Height="90" Margin="0,0,0,4" Background="#1E293B" Foreground="White"/>
                 <Button Content="選択したコードを削除" Click="RemoveTempPasswordButton_Click" Margin="0,0,0,12" Background="#334155"/>
-                <Button Content="🔄 本日の延長時間をリセット（0分に戻す）" Click="ResetExtraMinutesButton_Click" Margin="0,0,0,32" Background="#334155"/>
+                <Button Content="🔄 本日の延長時間をリセット（0分に戻す）" Click="ResetExtraMinutesButton_Click" Margin="0,0,0,8" Background="#334155"/>
+                <Button Content="⏳ 本日の使用時間をリセット（0分に戻す）" Click="ResetUsedMinutesButton_Click" Margin="0,0,0,32" Background="#334155"/>
             </StackPanel>
         </ScrollViewer>
     </Grid>
