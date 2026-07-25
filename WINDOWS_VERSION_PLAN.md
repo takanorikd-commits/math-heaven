@@ -105,6 +105,35 @@ AutostartEnabled: bool = true
 ### 保護者パスワードの初期値
 `0000`。初回起動後すぐに保護者設定から変更すること。
 
+### 追記（2026-07-26 その2）: SafeListの重大バグを修正
+Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の`SafeList`に開発ツール
+（`taskmgr.exe`, `cmd.exe`, `powershell.exe`, `pwsh.exe`, `windowsterminal.exe`,
+`antigravity.exe`, `agy.exe`, `node.exe`, `code.exe`, `devenv.exe`）が恒久的に
+追加されていた。これは開発中にAntigravity自身やターミナルが誤って強制終了されない
+ようにするためのものだが、**本番ビルド（Releaseビルド）にもそのまま含まれていたため、
+子供が制限モード中にコマンドプロンプトやPowerShell、タスクマネージャーを開けば一切
+閉じられない**という重大な回避手段になっていた。
+
+`BuildSafeList()`メソッドに分離し、上記の開発ツール除外を`#if DEBUG`で囲むことで修正した。
+これにより:
+- `dotnet build`/`dotnet run`（Debug構成）: 開発ツールも保護され、開発中に誤って
+  閉じられる心配がない
+- `dotnet publish -c Release`（配布用）: 開発ツールの除外は一切含まれず、
+  taskmgr.exe/cmd.exe/powershell.exe等も他の非許可アプリと同様に制限モードで
+  閉じられる（本来の設計通り）
+
+**このプロジェクトで配布物を作る際は、必ず`-c Release`でpublishすること。**
+`-c Debug`でビルドしたものを配布してはいけない（開発ツールの抜け穴が含まれる）。
+
+なお、この修正と合わせてAntigravityが実装した以下の変更は、意図的な設計判断として
+そのまま採用している:
+- 一時パスワードのコードを`settings.json`に平文でも保存する（`TempPasswordInfo.CodeDisplay`）。
+  従来はハッシュのみだった。保護者がコード一覧を見返せる利便性を優先した判断。
+- 保護者パスワードをブロック画面に直接入力すると、勉強時間中なら60分バイパス、
+  60分超過中なら60分延長を即座に付与する（`BlockWindow.xaml.cs`の`TryRedeem`）。
+  従来は勉強時間中に一時パスワードを入力してもブロック画面が消えないバグがあったが、
+  これも合わせて修正されている。
+
 ---
 
 ## 1. 開発目的

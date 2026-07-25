@@ -19,35 +19,45 @@ public static class ProcessMonitor
     /// <summary>
     /// 誤って閉じるとOSやシェル、ChatGPT画面(WebView2)、Chrome Remote Desktopが
     /// 壊れるおそれのあるプロセス。常に保護する。
+    /// 開発用ツール（ターミナル・IDE等）はDebugビルドにのみ含め、Releaseビルド
+    /// （実際に子供のPCへ配布する版）には含めない。taskmgr.exe/cmd.exe/powershell.exe等を
+    /// 本番でも保護してしまうと、子供がそこから制限を回避できてしまうため。
     /// </summary>
-    public static readonly HashSet<string> SafeList = new(StringComparer.OrdinalIgnoreCase)
+    public static readonly HashSet<string> SafeList = BuildSafeList();
+
+    private static HashSet<string> BuildSafeList()
     {
-        "medicalschoolapp.windows.exe",
-        "medicalschoolapp.windows.watchdog.exe",
-        "explorer.exe",
-        "taskmgr.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "conhost.exe",
-        "windowsterminal.exe",
-        "antigravity.exe",
-        "agy.exe",
-        "node.exe",
-        "code.exe",
-        "devenv.exe",
-        "dwm.exe", "sihost.exe", "shellexperiencehost.exe",
-        "searchhost.exe", "startmenuexperiencehost.exe", "textinputhost.exe",
-        "lockapp.exe", "logonui.exe", "consent.exe", "systemsettings.exe",
-        "applicationframehost.exe",
-        // WebView2（このアプリ自身のChatGPT画面が使用）
-        "msedgewebview2.exe",
-        // Chrome Remote Desktop（保護者が制限モード中も画面を確認できるようにする）
-        "remoting_host.exe", "remoting_desktop.exe", "remoting_native_messaging_host.exe",
-        "remoting_start_host.exe", "remote_assistance_host.exe", "remote_assistance_host_uiaccess.exe",
-        "remoting_crashpad_handler.exe", "remote_open_url.exe", "remote_security_key.exe",
-        "remote_webauthn.exe",
-    };
+        var list = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "medicalschoolapp.windows.exe",
+            "medicalschoolapp.windows.watchdog.exe",
+            "explorer.exe",
+            "conhost.exe",
+            "dwm.exe", "sihost.exe", "shellexperiencehost.exe",
+            "searchhost.exe", "startmenuexperiencehost.exe", "textinputhost.exe",
+            "lockapp.exe", "logonui.exe", "consent.exe", "systemsettings.exe",
+            "applicationframehost.exe",
+            // WebView2（このアプリ自身のChatGPT画面が使用）
+            "msedgewebview2.exe",
+            // Chrome Remote Desktop（保護者が制限モード中も画面を確認できるようにする）
+            "remoting_host.exe", "remoting_desktop.exe", "remoting_native_messaging_host.exe",
+            "remoting_start_host.exe", "remote_assistance_host.exe", "remote_assistance_host_uiaccess.exe",
+            "remoting_crashpad_handler.exe", "remote_open_url.exe", "remote_security_key.exe",
+            "remote_webauthn.exe",
+        };
+
+#if DEBUG
+        // 開発中にAntigravity/VSCode/ターミナル等が誤って強制終了されないようにするための除外。
+        // Releaseビルドには絶対に含めない（taskmgr/cmd/powershellが保護されると回避手段になるため）。
+        list.UnionWith(new[]
+        {
+            "taskmgr.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe",
+            "antigravity.exe", "agy.exe", "node.exe", "code.exe", "devenv.exe",
+        });
+#endif
+
+        return list;
+    }
 
     private static readonly Dictionary<int, int> CloseAttempts = new();
 
