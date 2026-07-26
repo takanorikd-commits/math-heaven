@@ -108,13 +108,28 @@ public partial class App : System.Windows.Application
     public static void ShowChatGptWindow()
     {
         _chatGptWindow ??= new ChatGptWindow();
+        _chatGptWindow.Topmost = true;
         _chatGptWindow.Show();
         _chatGptWindow.Activate();
+        // ブロック画面(常時最前面)がChatGPT画面を覆ってしまわないよう、いったん隠す
+        _blockWindow?.Hide();
     }
+
+    /// <summary>
+    /// ChatGPT画面が現在アクティブ（使用中）かどうか。制限モード監視ループが
+    /// 毎秒ブロック画面を最前面に出し直す際、ChatGPT使用中はそれを抑制するために使う。
+    /// </summary>
+    public static bool IsChatGptWindowActive => _chatGptWindow?.IsActive == true;
 
     public static void ShowBlockWindow()
     {
         if (_blockWindow is null) return;
+        if (IsChatGptWindowActive) return; // ChatGPT使用中はブロック画面で覆わない
+
+        if (_chatGptWindow is not null)
+        {
+            _chatGptWindow.Topmost = false;
+        }
         _blockWindow.Show();
         _blockWindow.Activate();
         _blockWindow.Topmost = true;
