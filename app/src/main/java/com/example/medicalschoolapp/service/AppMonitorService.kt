@@ -91,17 +91,22 @@ class AppMonitorService : AccessibilityService() {
             
             Log.d(TAG, "App $packageName: isPlay=$isPlay, isPseudoActive=$isPseudoActive")
             
-            if (isPlay || isPseudoActive) {
+            // そもそも「遊び」カテゴリーでないアプリ（ChatGPTや電話など）は、
+            // 制限時間内であっても疑似制限モード中であっても、一切ブロックしない
+            if (isPlay) {
                 // Initial check
                 checkAndBlockIfTimeUp(packageName)
 
                 // Periodic check
                 monitorJob = launch {
                     while (isActive) {
-                        delay(2000) // 2秒ごとにチェック（より頻繁に）
+                        delay(2000) // 2秒ごとにチェック
                         checkAndBlockIfTimeUp(packageName)
                     }
                 }
+            } else if (isPseudoActive) {
+                // 疑似制限モード中かつ、遊びアプリではない場合（テストログ用）
+                Log.d(TAG, "App $packageName is NOT a play app. Skipping block even in pseudo mode.")
             }
         }
     }

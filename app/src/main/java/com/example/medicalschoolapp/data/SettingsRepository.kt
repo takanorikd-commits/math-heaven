@@ -84,7 +84,8 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             "com.miui.home",
             "com.huawei.android.launcher",
             "com.samsung.android.messaging",
-            "com.google.android.apps.messaging"
+            "com.google.android.apps.messaging",
+            "com.openai.chatgpt"
         )
     }
 
