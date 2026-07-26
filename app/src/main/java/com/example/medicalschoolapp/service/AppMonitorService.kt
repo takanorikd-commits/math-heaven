@@ -35,10 +35,13 @@ class AppMonitorService : AccessibilityService() {
         super.onServiceConnected()
         Log.d(TAG, "Service connected")
         repository = LocalSettingsRepository(applicationContext)
-        startForegroundService()
+        setupForegroundNotification()
+        
+        // 常時監視ループを開始
+        startPersistentMonitor()
     }
 
-    private fun startForegroundService() {
+    private fun setupForegroundNotification() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -63,86 +66,112 @@ class AppMonitorService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
             
-            if (packageName == "com.android.systemui") {
-                return
-            }
-
             if (packageName != currentForegroundPackage) {
-                Log.d(TAG, "Foreground app changed to: $packageName")
+                Log.d(TAG, "Foreground app changed (Event): $packageName")
                 currentForegroundPackage = packageName
-
-                // 自アプリが最前面に来た場合は、制限対象アプリの監視を停止する
-                if (packageName == applicationContext.packageName) {
-                    monitorJob?.cancel()
-                    return
-                }
-
-                handleAppChange(packageName)
             }
         }
     }
 
-    private fun handleAppChange(packageName: String) {
+    private fun startPersistentMonitor() {
         monitorJob?.cancel()
-        
-        serviceScope.launch {
-            val isPlay = repository.isAppPlayCategory(packageName)
-            val isPseudoActive = repository.isPseudoRestrictionFlow.first()
-            
-            Log.d(TAG, "App $packageName: isPlay=$isPlay, isPseudoActive=$isPseudoActive")
-            
-            // そもそも「遊び」カテゴリーでないアプリ（ChatGPTや電話など）は、
-            // 制限時間内であっても疑似制限モード中であっても、一切ブロックしない
-            if (isPlay) {
-                // Initial check
-                checkAndBlockIfTimeUp(packageName)
+        monitorJob = serviceScope.launch {
+            while (isActive) {
+                // 現在最前面にいるアプリのパッケージ名を取得
+                val foregroundPackage = rootInActiveWindow?.packageName?.toString() 
+                    ?: currentForegroundPackage 
+                    ?: ""
+                
+                if (foregroundPackage.isNotEmpty() && foregroundPackage != applicationContext.packageName) {
+                    
+                    // 1. アンインストール防止チェック (設定画面やインストーラーを監視)
+                    if (isSecurityRiskPackage(foregroundPackage)) {
+                        checkAndBlockUninstallAttempt()
+                    }
 
-                // Periodic check
-                monitorJob = launch {
-                    while (isActive) {
-                        delay(2000) // 2秒ごとにチェック
-                        checkAndBlockIfTimeUp(packageName)
+                    // 2. 通常の遊びアプリ制限チェック
+                    if (foregroundPackage != "com.android.systemui") {
+                        val isPlay = repository.isAppPlayCategory(foregroundPackage)
+                        if (isPlay) {
+                            checkAndBlockIfTimeUp(foregroundPackage)
+                        }
                     }
                 }
-            } else if (isPseudoActive) {
-                // 疑似制限モード中かつ、遊びアプリではない場合（テストログ用）
-                Log.d(TAG, "App $packageName is NOT a play app. Skipping block even in pseudo mode.")
+                
+                delay(2000) // 2秒ごとにチェック
             }
         }
     }
 
-    private suspend fun checkAndBlockIfTimeUp(packageName: String) {
+    private fun isSecurityRiskPackage(packageName: String): Boolean {
+        return packageName == "com.android.settings" || 
+               packageName == "com.android.packageinstaller" || 
+               packageName == "com.google.android.packageinstaller" || 
+               packageName == "com.samsung.android.packageinstaller"
+    }
+
+    private fun checkAndBlockUninstallAttempt() {
+        val root = rootInActiveWindow ?: return
+        
+        // 画面内にアプリ名が表示されているか確認
+        val appName = getString(com.example.medicalschoolapp.R.string.app_name)
+        val nodes = root.findAccessibilityNodeInfosByText(appName)
+        
+        if (nodes.isNotEmpty()) {
+            // アプリの詳細画面や削除確認画面にいる可能性があるため、危険なキーワードをチェック
+            val dangerousKeywords = listOf("アンインストール", "削除", "無効", "停止", "解除", "Uninstall", "Delete", "Disable", "Force stop")
+            var isDangerousScreen = false
+            
+            for (keyword in dangerousKeywords) {
+                if (root.findAccessibilityNodeInfosByText(keyword).isNotEmpty()) {
+                    isDangerousScreen = true
+                    break
+                }
+            }
+
+            if (isDangerousScreen) {
+                // 通常時であっても、アンインストール操作は常にブロックする
+                Log.w(TAG, "BLOCKING Uninstall attempt for $appName (Always active)")
+                launchBlockActivity()
+            }
+        }
+    }
+
+    private suspend fun calculateRemainingMs(): Long {
         val now = System.currentTimeMillis()
         val usedTimeMs = repository.getTodayPlayUsageMs()
         val startDateMs = repository.startDateFlow.first()
+        val initialBaseMins = repository.initialBaseTimeFlow.first()
         val stats = repository.dailyUsageStatsFlow.first()
         val manualBaseMins = repository.baseTimeFlow.first()
         val extendedTimeMins = stats.second
 
-        val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now)
+        val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now, initialBaseMins)
+        return (baseAllowedMins + extendedTimeMins) * 60 * 1000L - usedTimeMs
+    }
 
-        val totalAllowedMins = baseAllowedMins + extendedTimeMins
-        val totalAllowedMs = totalAllowedMins * 60 * 1000L
-        val remainingMs = totalAllowedMs - usedTimeMs
-
-        Log.d(TAG, "Checking $packageName: used=${usedTimeMs/1000}s, totalAllowed=${totalAllowedMs/1000}s, remaining=${remainingMs/1000}s")
-
-        // Update cache
-        repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(now), usedTimeMs)
+    /**
+     * @return ブロックを実行した場合は true
+     */
+    private suspend fun checkAndBlockIfTimeUp(packageName: String): Boolean {
+        val remainingMs = calculateRemainingMs()
+        val now = System.currentTimeMillis()
+        
+        // キャッシュ更新（使用統計用）
+        repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(now), repository.getTodayPlayUsageMs())
 
         val isPseudoActive = repository.isPseudoRestrictionFlow.first()
         val isStudyTime = repository.isStudyTimeNow()
         
-        if (isPseudoActive || isStudyTime) {
-            Log.w(TAG, "BLOCKING $packageName - Restriction active (Pseudo: $isPseudoActive, Study: $isStudyTime)")
-            launchBlockActivity()
-            return
+        if (isPseudoActive || isStudyTime || remainingMs <= 0) {
+            // 現在の本当の最前面を確認して、自アプリでなければブロック
+            val actualForeground = rootInActiveWindow?.packageName?.toString() ?: currentForegroundPackage
+            if (actualForeground != applicationContext.packageName && actualForeground != "com.android.systemui") {
+                launchBlockActivity()
+                return true
+            }
         }
-
-        if (remainingMs <= 0) {
-            Log.w(TAG, "BLOCKING $packageName - Time is up!")
-            launchBlockActivity()
-        }
+        return false
     }
 
     private fun launchBlockActivity() {

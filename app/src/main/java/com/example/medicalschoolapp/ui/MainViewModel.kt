@@ -23,6 +23,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val tempPasswords = repository.tempPasswordsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val initialBaseTimeMins = repository.initialBaseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 240)
     val studySchedules = repository.studySchedulesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isPseudoRestrictionActive = repository.isPseudoRestrictionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -37,13 +38,14 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
         repository.startDateFlow,
         liveUsedTimeMsFlow,
         repository.dailyUsageStatsFlow,
-        repository.baseTimeFlow
-    ) { start, usedTimeMs, stats, manualBaseMins ->
+        repository.baseTimeFlow,
+        repository.initialBaseTimeFlow
+    ) { start, usedTimeMs, stats, manualBaseMins, initialBaseMins ->
         val extendedTimeMins = stats.second
         val now = System.currentTimeMillis()
         
         // Use manual override if set, otherwise use the auto-calculating base time
-        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now)
+        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now, initialBaseMins)
 
         TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins, baseMins)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 120 * 60 * 1000L)

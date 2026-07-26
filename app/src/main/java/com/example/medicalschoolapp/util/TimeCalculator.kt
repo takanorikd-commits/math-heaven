@@ -10,15 +10,15 @@ object TimeCalculator {
         2028, 1, 15, 9, 30, 0, 0, ZoneId.of("Asia/Tokyo")
     )
 
-    fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long): Int {
+    fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long, initialMinutes: Int = 240): Int {
         // Handle uninitialized or invalid start date
-        if (startDateMs <= 0 || currentDateMs < startDateMs) return 120
+        if (startDateMs <= 0 || currentDateMs < startDateMs) return initialMinutes
         
         val diffMs = currentDateMs - startDateMs
         val weeksPassed = diffMs / (1000L * 60 * 60 * 24 * 7)
         // 2.5 minutes reduction per week
         val reduction = (weeksPassed * 2.5).toInt()
-        val allowed = 120 - reduction
+        val allowed = initialMinutes - reduction
         return allowed.coerceAtLeast(0)
     }
 

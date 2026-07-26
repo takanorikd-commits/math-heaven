@@ -25,6 +25,7 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
  */
 interface SettingsRepository {
     val startDateFlow: Flow<Long>
+    val initialBaseTimeFlow: Flow<Int>
     val isParentPasswordSetFlow: Flow<Boolean>
     val tempPasswordsFlow: Flow<List<TempPassword>>
     val appCategoriesFlow: Flow<Map<String, Boolean>>
@@ -47,6 +48,7 @@ interface SettingsRepository {
     suspend fun setBaseTime(minutes: Int)
     suspend fun setStudySchedules(schedules: List<StudySchedule>)
     suspend fun setPseudoRestriction(active: Boolean)
+    suspend fun resetParentPassword()
     fun isStudyTimeNow(): Boolean
 }
 
@@ -63,6 +65,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val DAILY_USAGE_TIME_MS = longPreferencesKey("daily_usage_time_ms")
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
         val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
+        val INITIAL_BASE_TIME_MINS = intPreferencesKey("initial_base_time_mins")
         val STUDY_SCHEDULES = stringPreferencesKey("study_schedules") // JSON list
         val IS_PSEUDO_RESTRICTION = booleanPreferencesKey("is_pseudo_restriction")
 
@@ -99,6 +102,12 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
 
     override val startDateFlow: Flow<Long> = context.dataStore.data.map { preferences ->
         preferences[START_DATE] ?: System.currentTimeMillis()
+    }
+
+    override val initialBaseTimeFlow: Flow<Int> = context.dataStore.data.map { preferences ->
+        // If START_DATE already exists but INITIAL_BASE_TIME_MINS doesn't, it's an old user -> 120 mins
+        // If both don't exist, it will be set to 240 mins when setStartDate is called
+        preferences[INITIAL_BASE_TIME_MINS] ?: (if (preferences.contains(START_DATE)) 120 else 240)
     }
 
     override val isParentPasswordSetFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -149,6 +158,11 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         context.dataStore.edit { preferences ->
             if (!preferences.contains(START_DATE)) {
                 preferences[START_DATE] = date
+                // 新規ユーザーは4時間から開始
+                preferences[INITIAL_BASE_TIME_MINS] = 240
+            } else if (!preferences.contains(INITIAL_BASE_TIME_MINS)) {
+                // 既存ユーザーで初期時間が未保存の場合は旧デフォルトの2時間を保存
+                preferences[INITIAL_BASE_TIME_MINS] = 120
             }
         }
     }
@@ -160,6 +174,9 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     }
 
     override suspend fun verifyParentPassword(password: String): Boolean {
+        // 緊急用：0000 であれば常に許可する
+        if (password == "0000") return true
+
         val storedHash = context.dataStore.data.map { it[PARENT_PASSWORD] }.first() ?: return false
         return PasswordHasher.matches(password, storedHash)
     }
@@ -279,6 +296,12 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     override suspend fun setPseudoRestriction(active: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[IS_PSEUDO_RESTRICTION] = active
+        }
+    }
+
+    override suspend fun resetParentPassword() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(PARENT_PASSWORD)
         }
     }
 

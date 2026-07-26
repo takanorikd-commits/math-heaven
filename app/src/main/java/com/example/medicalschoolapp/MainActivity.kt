@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
                 val stats = repo.dailyUsageStatsFlow.first()
                 val base = repo.baseTimeFlow.first()
                 val start = repo.startDateFlow.first()
-                val baseMins = base ?: TimeCalculator.getBaseAllowedMinutes(start, System.currentTimeMillis())
+                val initial = repo.initialBaseTimeFlow.first()
+                val baseMins = base ?: TimeCalculator.getBaseAllowedMinutes(start, System.currentTimeMillis(), initial)
                 val remainingMs: Long = (baseMins.toLong() + stats.second.toLong()) * 60000L - stats.first
                 remainingMs <= 0L
             } catch (e: Exception) {
@@ -725,11 +726,12 @@ fun PasswordSettingsScreen(viewModel: MainViewModel) {
 @Composable
 fun TimeSettingsScreen(viewModel: MainViewModel) {
     val baseTimeMins by viewModel.baseTimeMins.collectAsState()
+    val initialBaseTimeMins by viewModel.initialBaseTimeMins.collectAsState()
     val startDate by viewModel.startDate.collectAsState()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis())
+    val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis(), initialBaseTimeMins)
     val displayBaseMins = baseTimeMins ?: autoBaseMins
 
     var textInputValue by remember(displayBaseMins) { mutableStateOf(displayBaseMins.toString()) }
@@ -782,12 +784,12 @@ fun TimeSettingsScreen(viewModel: MainViewModel) {
             modifier = Modifier.padding(vertical = 16.dp)
         ) {
             Slider(
-                value = displayBaseMins.toFloat().coerceIn(0f, 300f),
+                value = displayBaseMins.toFloat().coerceIn(0f, 480f),
                 onValueChange = { 
                     viewModel.setBaseTime(it.toInt())
                 },
-                valueRange = 0f..300f,
-                steps = 59,
+                valueRange = 0f..480f,
+                steps = 95,
                 modifier = Modifier.weight(1f)
             )
             Text(
