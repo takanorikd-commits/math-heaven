@@ -81,6 +81,9 @@ fun BlockScreen(
     }
 
     val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
+    val baseTimeMins by viewModel.baseTimeMins.collectAsState()
+    val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
+    val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
 
     Column(
         modifier = Modifier
@@ -103,8 +106,18 @@ fun BlockScreen(
             }
         }
 
+        val reasonText = if (isParentAuthMode) {
+            "保護者パスワードで解除"
+        } else if (isPseudoActive) {
+            "疑似制限モード実行中"
+        } else if (remainingMinutes <= 0) {
+            "本日の遊びスマホ時間は終了しました"
+        } else {
+            "現在は【勉強時間】に指定されています"
+        }
+
         Text(
-            text = if (isParentAuthMode) "保護者パスワードで解除" else if (isPseudoActive) "疑似制限モード実行中" else "本日の遊びスマホ時間は終了しました",
+            text = reasonText,
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onErrorContainer,
             modifier = Modifier.padding(bottom = 32.dp)
@@ -147,8 +160,8 @@ fun BlockScreen(
                     viewModel.verifyParentPassword(passwordInput) { success ->
                         if (success) {
                             failedAttempts = 0
-                            // 保護者パスワードの場合は、一時パスワードと同様に解除して閉じる
-                            // (リポジトリ側の制限時間自体を増やす処理を挟むことも可能ですが、ここでは画面を閉じるのみ)
+                            // 保護者パスワードの場合は 60分 追加して確実に解除する
+                            viewModel.addExtensionTime(60)
                             onUnlocked()
                         } else {
                             errorMessage = "保護者パスワードが違います"
@@ -174,7 +187,7 @@ fun BlockScreen(
             enabled = !isLocked,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (isParentAuthMode) "保護者認証で解除" else "延長する (15分)")
+            Text(if (isParentAuthMode) "保護者認証で解除 (+60分)" else "延長する (15分)")
         }
 
         TextButton(onClick = { 

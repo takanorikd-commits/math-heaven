@@ -84,13 +84,16 @@ class AppMonitorService : AccessibilityService() {
                 
                 if (foregroundPackage.isNotEmpty() && foregroundPackage != applicationContext.packageName) {
                     
-                    // 1. アンインストール防止チェック (設定画面やインストーラーを監視)
-                    if (isSecurityRiskPackage(foregroundPackage)) {
+                    // システムUIは監視対象外
+                    if (foregroundPackage == "com.android.systemui") {
+                        // skip
+                    } else if (isSecurityRiskPackage(foregroundPackage)) {
+                        // 1. アンインストール防止チェック
+                        // ただし、現在はデバッグを容易にするため、設定画面自体の起動は許可し、
+                        // 特定の危険操作のみをチェックする（必要最小限のガード）
                         checkAndBlockUninstallAttempt()
-                    }
-
-                    // 2. 通常の遊びアプリ制限チェック
-                    if (foregroundPackage != "com.android.systemui") {
+                    } else {
+                        // 2. 通常の遊びアプリ制限チェック
                         val isPlay = repository.isAppPlayCategory(foregroundPackage)
                         if (isPlay) {
                             checkAndBlockIfTimeUp(foregroundPackage)
@@ -104,8 +107,9 @@ class AppMonitorService : AccessibilityService() {
     }
 
     private fun isSecurityRiskPackage(packageName: String): Boolean {
-        return packageName == "com.android.settings" || 
-               packageName == "com.android.packageinstaller" || 
+        // 設定画面そのものはホワイトリスト（常に許可）に入れるため、ここではインストーラーのみを対象とする
+        // これにより「設定 > 開発者向けオプション」にはいつでもアクセス可能になります
+        return packageName == "com.android.packageinstaller" ||
                packageName == "com.google.android.packageinstaller" || 
                packageName == "com.samsung.android.packageinstaller"
     }

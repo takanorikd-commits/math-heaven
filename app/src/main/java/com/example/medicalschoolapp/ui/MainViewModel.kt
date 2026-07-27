@@ -116,6 +116,13 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
         }
     }
 
+    fun addExtensionTime(minutes: Int) {
+        viewModelScope.launch {
+            repository.addExtendedTime(minutes, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
+            refreshRemainingTime()
+        }
+    }
+
     fun useTempPassword(code: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             val passwords = repository.tempPasswordsFlow.first()

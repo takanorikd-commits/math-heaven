@@ -11,8 +11,11 @@ object TimeCalculator {
     )
 
     fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long, initialMinutes: Int = 240): Int {
-        // Handle uninitialized or invalid start date
-        if (startDateMs <= 0 || currentDateMs < startDateMs) return initialMinutes
+        // まだ開始日が設定されていない場合はデフォルトの初期値を返す
+        if (startDateMs <= 0L) return initialMinutes
+        
+        // Handle invalid start date
+        if (currentDateMs < startDateMs) return initialMinutes
         
         val diffMs = currentDateMs - startDateMs
         val weeksPassed = diffMs / (1000L * 60 * 60 * 24 * 7)

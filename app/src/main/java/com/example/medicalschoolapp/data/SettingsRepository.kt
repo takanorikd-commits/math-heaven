@@ -101,7 +101,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     }
 
     override val startDateFlow: Flow<Long> = context.dataStore.data.map { preferences ->
-        preferences[START_DATE] ?: System.currentTimeMillis()
+        preferences[START_DATE] ?: 0L // 0L means not set yet
     }
 
     override val initialBaseTimeFlow: Flow<Int> = context.dataStore.data.map { preferences ->
