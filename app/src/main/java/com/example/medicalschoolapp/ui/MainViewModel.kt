@@ -33,6 +33,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     private val refreshTrigger = MutableStateFlow(0L)
 
     private val liveUsedTimeMsFlow = refreshTrigger.map { repository.getTodayPlayUsageMs() }
+    val todayUsedTimeMs = liveUsedTimeMsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val remainingTimeMs: StateFlow<Long> = combine(
         repository.startDateFlow,
@@ -119,6 +120,15 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     fun addExtensionTime(minutes: Int) {
         viewModelScope.launch {
             repository.addExtendedTime(minutes, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
+            refreshRemainingTime()
+        }
+    }
+
+    fun resetStartDate() {
+        viewModelScope.launch {
+            repository.clearStartDate()
+            // 削除後、現在の時刻で再初期化
+            repository.setStartDate(System.currentTimeMillis())
             refreshRemainingTime()
         }
     }

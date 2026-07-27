@@ -34,16 +34,20 @@ object UsageTracker {
         for ((packageName, packageStats) in aggregatedStats) {
             if (packageName == context.packageName) continue
             
-            // ホーム画面（ランチャー）は計算から除外する
+            // ホーム画面（ランチャー）や電話、設定などは計算から除外する
             if (launcherPackages.contains(packageName) || defaultAllowed.contains(packageName)) {
                 continue
             }
 
-            val isPlayApp = categoriesMap[packageName] ?: true // デフォルトは「遊び」としてカウント
+            // デフォルトの判定ロジック:
+            // 1. 親が明示的に設定している場合はそれに従う
+            // 2. 設定されていない場合は、ランチャーやシステム許可リストに含まれていなければ「遊び」とみなす
+            val isPlayApp = categoriesMap[packageName] ?: run {
+                !defaultAllowed.contains(packageName) && !launcherPackages.contains(packageName)
+            }
             
             if (isPlayApp) {
                 // そのアプリの今日のフォアグラウンド時間を合計
-                // queryUsageStats はその日の合計時間を返すが、念のため
                 val timeInForeground = packageStats.maxByOrNull { it.lastTimeUsed }?.totalTimeInForeground ?: 0L
                 totalPlayTimeMs += timeInForeground
             }

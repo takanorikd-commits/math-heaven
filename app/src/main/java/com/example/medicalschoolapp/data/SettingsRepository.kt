@@ -49,6 +49,7 @@ interface SettingsRepository {
     suspend fun setStudySchedules(schedules: List<StudySchedule>)
     suspend fun setPseudoRestriction(active: Boolean)
     suspend fun resetParentPassword()
+    suspend fun clearStartDate()
     fun isStudyTimeNow(): Boolean
 }
 
@@ -251,7 +252,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
                 preferences[DAILY_USAGE_DATE] = dateStartOfDay
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
                 preferences[EXTENDED_TIME_MINS_TODAY] = 0
-                preferences.remove(BASE_TIME_MINS) // Return to automatic time calculation
+                // preferences.remove(BASE_TIME_MINS) // コメントアウト：手動設定時間を保持するように変更
             } else {
                 // Same day, update time
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
@@ -302,6 +303,16 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     override suspend fun resetParentPassword() {
         context.dataStore.edit { preferences ->
             preferences.remove(PARENT_PASSWORD)
+        }
+    }
+
+    override suspend fun clearStartDate() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(START_DATE)
+            preferences.remove(INITIAL_BASE_TIME_MINS)
+            preferences.remove(DAILY_USAGE_DATE)
+            preferences.remove(DAILY_USAGE_TIME_MS)
+            preferences.remove(EXTENDED_TIME_MINS_TODAY)
         }
     }
 

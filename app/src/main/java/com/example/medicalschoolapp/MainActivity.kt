@@ -460,13 +460,14 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 }
             }
         )
-        ScrollableTabRow(selectedTabIndex = selectedTab) {
+        TabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("アプリ制限") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("時間設定") })
-            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("勉強スケジュール") })
-            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("パスワード") })
-            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("一時パス") })
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("勉強スケ") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("パス") })
+            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("一時") })
             Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("防止") })
+            Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("修正") })
         }
 
         when (selectedTab) {
@@ -476,7 +477,66 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             3 -> PasswordSettingsScreen(viewModel)
             4 -> TempPasswordManager(viewModel)
             5 -> DeviceAdminScreen()
+            6 -> DebugTimeScreen(viewModel)
         }
+    }
+}
+
+@Composable
+fun DebugTimeScreen(viewModel: MainViewModel) {
+    val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
+    val todayUsedTimeMs by viewModel.todayUsedTimeMs.collectAsState()
+    
+    val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
+    val usedMinutes = todayUsedTimeMs / 60000
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            viewModel.refreshRemainingTime()
+            delay(5000)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("【開発用】時間計算の強制リセット", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("今日の遊び使用時間（計）: $usedMinutes 分", fontWeight = FontWeight.Bold)
+                Text("現在の計算上の残り時間: $remainingMinutes 分", color = if(remainingMinutes <= 0) Color.Red else Color.Unspecified)
+            }
+        }
+
+        Text("「残り時間0」から動かない場合、以下のボタンを押してください。", style = MaterialTheme.typography.bodySmall)
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Button(
+            onClick = { viewModel.addExtensionTime(240) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("強制的に4時間追加する")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        OutlinedButton(
+            onClick = {
+                // 開始日を「今」にリセットする
+                viewModel.resetStartDate()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("開始日を今日にリセット")
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("※ これでも直らない場合は、Androidの「設定 > アプリ > 医学部合格アプリ > ストレージ > データを消去」をお試しください。", 
+            style = MaterialTheme.typography.bodySmall, color = Color.Red)
     }
 }
 
@@ -752,7 +812,7 @@ fun TimeSettingsScreen(viewModel: MainViewModel) {
             )
         } else {
             Text(
-                "現在は手動設定が有効です（本日のみ有効）",
+                "現在は手動設定が有効です（変更するまで毎日適用されます）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
