@@ -228,3 +228,13 @@ Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の
 - HKLMとHKCUの二重登録による多重起動を防ぐため、`App.xaml.cs`に名前付きMutexでの単一インスタンス化と、共有モード時はHKCU側の自動起動を明示的に解除するロジックを追加した。
 - Watchdogの相互監視は`Process.SessionId`でフィルタするようにした（複数アカウント同時ログイン時に他アカウントのプロセスを「自分の本体/Watchdogが生きている」と誤認しないため）。
 - 実機で「管理者権限なしで`--register-machine-wide`を叩くと静かに失敗し、クラッシュしないこと」「通常起動でWatchdogが連携すること」は検証済み。**UAC昇格を伴う実際の有効化フロー（管理者パスワード入力を含む）はこのセッションのツールでは対話操作できないため未検証**。実機で保護者が一度試す必要がある。
+
+### 追記（2026-08-01）: 子供のノートPCへの実機インストール準備とReleaseビルド
+引き継ぎ指示に従い、`git pull origin main` で最新コミットを同期し、「0. 現在の状態」セクションを全制約事項と共に確認。
+
+1. **Android側との非介入保護**: Androidアプリ（`app/` フォルダおよびルートのGradle関連ファイル）は一切変更せず保護。
+2. **Release構成での配布パッケージ出力**:
+   `dotnet publish -c Release -r win-x64 --self-contained false` を使用し、メインアプリ (`MedicalSchoolApp.Windows`) およびウォッチドッグ (`MedicalSchoolApp.Windows.Watchdog`) を同一フォルダ `WindowsApp/publish/framework-dependent/` に出力完了。
+3. **セキュリティチェック**:
+   Releaseビルドのため、`ProcessMonitor.cs` 内の `#if DEBUG` ブロックで囲まれた開発者用ツール（`taskmgr.exe`, `powershell.exe`, `cmd.exe` 等）は含まれず、本番で子供が制限を回避できないことを確認済み。
+
