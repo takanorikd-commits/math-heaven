@@ -40,15 +40,26 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
         liveUsedTimeMsFlow,
         repository.dailyUsageStatsFlow,
         repository.baseTimeFlow,
-        repository.initialBaseTimeFlow
-    ) { start, usedTimeMs, stats, manualBaseMins, initialBaseMins ->
+        repository.initialBaseTimeFlow,
+        repository.usageBaselineFlow
+    ) { flows ->
+        val start = flows[0] as Long
+        val usedTimeMs = flows[1] as Long
+        val stats = flows[2] as Pair<Long, Int>
+        val manualBaseMins = flows[3] as Int?
+        val initialBaseMins = flows[4] as Int
+        val baselineMs = flows[5] as Long
+
         val extendedTimeMins = stats.second
         val now = System.currentTimeMillis()
         
         // Use manual override if set, otherwise use the auto-calculating base time
         val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now, initialBaseMins)
 
-        TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins, baseMins)
+        // 基準点（設定した時点の使用量）を差し引いて、純粋にそれ以降の使用量を計算
+        val effectiveUsedMs = (usedTimeMs - baselineMs).coerceAtLeast(0L)
+
+        TimeCalculator.getRemainingTimeTodayMs(start, now, effectiveUsedMs, extendedTimeMins, baseMins)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 120 * 60 * 1000L)
 
     val commonTestCountdown = MutableStateFlow(TimeCalculator.getCountdownToCommonTest())
@@ -90,6 +101,10 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
 
     fun setBaseTime(minutes: Int) {
         viewModelScope.launch {
+            // 現在の累積使用時間を取得
+            val currentUsage = repository.getTodayPlayUsageMs()
+            // 使用時間を上書き（リセット）してから基本時間を設定
+            repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(System.currentTimeMillis()), currentUsage)
             repository.setBaseTime(minutes)
             refreshRemainingTime()
         }
@@ -119,6 +134,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
 
     fun addExtensionTime(minutes: Int) {
         viewModelScope.launch {
+            repository.notifyUnlockEvent() // 解除イベントを通知
             repository.addExtendedTime(minutes, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
             refreshRemainingTime()
         }

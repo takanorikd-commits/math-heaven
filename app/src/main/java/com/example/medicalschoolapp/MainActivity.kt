@@ -486,9 +486,14 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 fun DebugTimeScreen(viewModel: MainViewModel) {
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
     val todayUsedTimeMs by viewModel.todayUsedTimeMs.collectAsState()
+    val startDate by viewModel.startDate.collectAsState()
+    val baseTimeMins by viewModel.baseTimeMins.collectAsState()
+    val initialBaseTimeMins by viewModel.initialBaseTimeMins.collectAsState()
     
-    val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
+    val remainingMinutes = (remainingTimeMs / 60000)
     val usedMinutes = todayUsedTimeMs / 60000
+    val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis(), initialBaseTimeMins)
+    val currentBase = baseTimeMins ?: autoBaseMins
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -498,7 +503,7 @@ fun DebugTimeScreen(viewModel: MainViewModel) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("【開発用】時間計算の強制リセット", style = MaterialTheme.typography.titleMedium)
+        Text("【開発用】時間計算のデバッグ", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(16.dp))
         
         Card(
@@ -506,8 +511,13 @@ fun DebugTimeScreen(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("今日の遊び使用時間（計）: $usedMinutes 分", fontWeight = FontWeight.Bold)
-                Text("現在の計算上の残り時間: $remainingMinutes 分", color = if(remainingMinutes <= 0) Color.Red else Color.Unspecified)
+                Text("--- 計算内訳 ---", style = MaterialTheme.typography.bodySmall)
+                Text("基本制限: $currentBase 分")
+                Text("今日の実使用: $usedMinutes 分", color = Color.Gray)
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+                Text("現在の残り: $remainingMinutes 分", 
+                    fontWeight = FontWeight.Bold,
+                    color = if(remainingMinutes <= 0) Color.Red else MaterialTheme.colorScheme.primary)
             }
         }
 

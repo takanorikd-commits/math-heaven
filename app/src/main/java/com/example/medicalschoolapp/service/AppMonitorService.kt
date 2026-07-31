@@ -84,6 +84,12 @@ class AppMonitorService : AccessibilityService() {
                 
                 if (foregroundPackage.isNotEmpty() && foregroundPackage != applicationContext.packageName) {
                     
+                    // パスワードで解除直後の場合は、一切のブロックを一時停止する
+                    if (repository.isRecentlyUnlocked()) {
+                        Log.d(TAG, "Restriction suspended due to recent unlock")
+                        return@launch
+                    }
+
                     // システムUIは監視対象外
                     if (foregroundPackage == "com.android.systemui") {
                         // skip
@@ -107,9 +113,9 @@ class AppMonitorService : AccessibilityService() {
     }
 
     private fun isSecurityRiskPackage(packageName: String): Boolean {
-        // 設定画面そのものはホワイトリスト（常に許可）に入れるため、ここではインストーラーのみを対象とする
-        // これにより「設定 > 開発者向けオプション」にはいつでもアクセス可能になります
-        return packageName == "com.android.packageinstaller" ||
+        // 設定画面も含めて制限対象とする（お子様が勝手に設定を変えないように）
+        return packageName == "com.android.settings" || 
+               packageName == "com.android.packageinstaller" || 
                packageName == "com.google.android.packageinstaller" || 
                packageName == "com.samsung.android.packageinstaller"
     }
@@ -117,26 +123,34 @@ class AppMonitorService : AccessibilityService() {
     private fun checkAndBlockUninstallAttempt() {
         val root = rootInActiveWindow ?: return
         
-        // 画面内にアプリ名が表示されているか確認
+        // アプリ名または「ユーザー補助」「デバイス管理」などのキーワードが含まれているかチェック
         val appName = getString(com.example.medicalschoolapp.R.string.app_name)
-        val nodes = root.findAccessibilityNodeInfosByText(appName)
+        val hasAppName = root.findAccessibilityNodeInfosByText(appName).isNotEmpty()
         
-        if (nodes.isNotEmpty()) {
-            // アプリの詳細画面や削除確認画面にいる可能性があるため、危険なキーワードをチェック
-            val dangerousKeywords = listOf("アンインストール", "削除", "無効", "停止", "解除", "Uninstall", "Delete", "Disable", "Force stop")
-            var isDangerousScreen = false
-            
+        // 設定画面自体が保護対象なので、設定画面が開かれただけでチェックを開始する
+        val dangerousKeywords = listOf("アンインストール", "削除", "無効", "停止", "解除", "Uninstall", "Delete", "Disable", "Force stop")
+        var isTargetingThisApp = hasAppName
+        
+        if (!isTargetingThisApp) {
             for (keyword in dangerousKeywords) {
                 if (root.findAccessibilityNodeInfosByText(keyword).isNotEmpty()) {
-                    isDangerousScreen = true
+                    isTargetingThisApp = true
                     break
                 }
             }
+        }
 
-            if (isDangerousScreen) {
-                // 通常時であっても、アンインストール操作は常にブロックする
-                Log.w(TAG, "BLOCKING Uninstall attempt for $appName (Always active)")
-                launchBlockActivity()
+        if (isTargetingThisApp) {
+            // 制限中であれば、設定/削除画面をブロックする
+            serviceScope.launch {
+                val remainingMs = calculateRemainingMs()
+                val isPseudoActive = repository.isPseudoRestrictionFlow.first()
+                val isStudyTime = repository.isStudyTimeNow()
+                
+                if (isPseudoActive || isStudyTime || remainingMs <= 0) {
+                    Log.w(TAG, "BLOCKING Access to Settings/Uninstall")
+                    launchBlockActivity()
+                }
             }
         }
     }
@@ -148,10 +162,14 @@ class AppMonitorService : AccessibilityService() {
         val initialBaseMins = repository.initialBaseTimeFlow.first()
         val stats = repository.dailyUsageStatsFlow.first()
         val manualBaseMins = repository.baseTimeFlow.first()
+        val baselineMs = repository.usageBaselineFlow.first()
         val extendedTimeMins = stats.second
 
+        // 設定時点の累積使用量を差し引いて実質的な使用量を計算
+        val effectiveUsedMs = (usedTimeMs - baselineMs).coerceAtLeast(0L)
+
         val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now, initialBaseMins)
-        return (baseAllowedMins + extendedTimeMins) * 60 * 1000L - usedTimeMs
+        return (baseAllowedMins + extendedTimeMins) * 60 * 1000L - effectiveUsedMs
     }
 
     /**

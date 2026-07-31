@@ -34,7 +34,8 @@ object TimeCalculator {
     ): Long {
         val totalAllowedMins = baseAllowedMins + extendedTimeMins
         val totalAllowedMs = totalAllowedMins * 60 * 1000L
-        return (totalAllowedMs - usedTimeMs).coerceAtLeast(0L)
+        // マイナスになってもそのまま返し、表示側でプラスになるように調整しやすくする
+        return totalAllowedMs - usedTimeMs
     }
 
     fun getCountdownToCommonTest(currentDate: ZonedDateTime = ZonedDateTime.now(ZoneId.of("Asia/Tokyo"))): String {
