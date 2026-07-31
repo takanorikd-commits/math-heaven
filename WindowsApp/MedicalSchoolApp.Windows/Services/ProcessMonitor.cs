@@ -63,11 +63,6 @@ public static class ProcessMonitor
 
     public static void Tick()
     {
-        // 「全アカウントで保護」時は複数プロセスがsettings.jsonを共有するため、
-        // 他アカウントで行われた設定変更（勉強時間・上限分等）を反映するために毎回読み直す。
-        // Settingsはこのプロセス自身が随時書き足すものではないため、常に読み直して問題ない。
-        AppState.ReloadSettings();
-
         var settings = AppState.Settings;
         var today = AppState.TodayUsage;
         var now = DateTime.Now;
@@ -143,9 +138,6 @@ public static class ProcessMonitor
         if (now.Second % 5 == 0)
         {
             AppState.SaveUsage();
-            // 自分の増分を書き出した直後に読み直すことで、他アカウントの更新
-            // （延長・リセット等）も取り込む。書き出し前に読み直すと自分の増分を失うため順序が重要。
-            AppState.ReloadUsage();
         }
 
         AppState.RaiseUpdated();

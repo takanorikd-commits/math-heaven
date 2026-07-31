@@ -24,7 +24,7 @@ object UsageTracker {
             emptySet<String>()
         }
         val defaultAllowed = LocalSettingsRepository.defaultAllowedPackages
-        // val pm = context.packageManager (unused)
+        val pm = context.packageManager
 
         var totalPlayTimeMs = 0L
 
@@ -34,22 +34,21 @@ object UsageTracker {
         for ((packageName, packageStats) in aggregatedStats) {
             if (packageName == context.packageName) continue
             
-            // ホーム画面（ランチャー）や電話、設定などは計算から除外する
-            if (launcherPackages.contains(packageName) || defaultAllowed.contains(packageName)) {
-                continue
+            // Only count apps that the user can actually launch
+            val hasLaunchIntent = try {
+                pm.getLaunchIntentForPackage(packageName) != null
+            } catch (e: Exception) {
+                false
             }
-
-            // デフォルトの判定ロジック:
-            // 1. 親が明示的に設定している場合はそれに従う
-            // 2. 設定されていない場合は、ランチャーやシステム許可リストに含まれていなければ「遊び」とみなす
+            if (!hasLaunchIntent) continue
+            
             val isPlayApp = categoriesMap[packageName] ?: run {
                 !defaultAllowed.contains(packageName) && !launcherPackages.contains(packageName)
             }
             
             if (isPlayApp) {
-                // そのアプリの今日のフォアグラウンド時間を合計
-                val timeInForeground = packageStats.maxByOrNull { it.lastTimeUsed }?.totalTimeInForeground ?: 0L
-                totalPlayTimeMs += timeInForeground
+                // Sum foreground time for this package in the interval
+                totalPlayTimeMs += packageStats.sumOf { it.totalTimeInForeground }
             }
         }
         

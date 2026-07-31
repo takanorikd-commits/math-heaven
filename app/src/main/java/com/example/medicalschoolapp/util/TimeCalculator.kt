@@ -10,18 +10,15 @@ object TimeCalculator {
         2028, 1, 15, 9, 30, 0, 0, ZoneId.of("Asia/Tokyo")
     )
 
-    fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long, initialMinutes: Int = 240): Int {
-        // まだ開始日が設定されていない場合はデフォルトの初期値を返す
-        if (startDateMs <= 0L) return initialMinutes
-        
-        // Handle invalid start date
-        if (currentDateMs < startDateMs) return initialMinutes
+    fun getBaseAllowedMinutes(startDateMs: Long, currentDateMs: Long): Int {
+        // Handle uninitialized or invalid start date
+        if (startDateMs <= 0 || currentDateMs < startDateMs) return 120
         
         val diffMs = currentDateMs - startDateMs
         val weeksPassed = diffMs / (1000L * 60 * 60 * 24 * 7)
         // 2.5 minutes reduction per week
         val reduction = (weeksPassed * 2.5).toInt()
-        val allowed = initialMinutes - reduction
+        val allowed = 120 - reduction
         return allowed.coerceAtLeast(0)
     }
 
@@ -34,8 +31,7 @@ object TimeCalculator {
     ): Long {
         val totalAllowedMins = baseAllowedMins + extendedTimeMins
         val totalAllowedMs = totalAllowedMins * 60 * 1000L
-        // マイナスになってもそのまま返し、表示側でプラスになるように調整しやすくする
-        return totalAllowedMs - usedTimeMs
+        return (totalAllowedMs - usedTimeMs).coerceAtLeast(0L)
     }
 
     fun getCountdownToCommonTest(currentDate: ZonedDateTime = ZonedDateTime.now(ZoneId.of("Asia/Tokyo"))): String {

@@ -70,7 +70,6 @@ fun BlockScreen(
     var failedAttempts by remember { mutableIntStateOf(0) }
     var lockedUntilMs by remember { mutableStateOf(0L) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    var isParentAuthMode by remember { mutableStateOf(false) }
 
     val isLocked = nowMs < lockedUntilMs
     LaunchedEffect(isLocked) {
@@ -81,9 +80,6 @@ fun BlockScreen(
     }
 
     val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
-    val baseTimeMins by viewModel.baseTimeMins.collectAsState()
-    val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
-    val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
 
     Column(
         modifier = Modifier
@@ -106,18 +102,8 @@ fun BlockScreen(
             }
         }
 
-        val reasonText = if (isParentAuthMode) {
-            "保護者パスワードで解除"
-        } else if (isPseudoActive) {
-            "疑似制限モード実行中"
-        } else if (remainingMinutes <= 0) {
-            "本日の遊びスマホ時間は終了しました"
-        } else {
-            "現在は【勉強時間】に指定されています"
-        }
-
         Text(
-            text = reasonText,
+            text = if (isPseudoActive) "疑似制限モード実行中" else "本日の遊びスマホ時間は終了しました",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onErrorContainer,
             modifier = Modifier.padding(bottom = 32.dp)
@@ -126,7 +112,7 @@ fun BlockScreen(
         OutlinedTextField(
             value = passwordInput,
             onValueChange = { passwordInput = it },
-            label = { Text(if (isParentAuthMode) "保護者パスワード" else "一時パスワード (6桁)") },
+            label = { Text("一時パスワード (6桁)") },
             visualTransformation = PasswordVisualTransformation(),
             isError = errorMessage != null,
             enabled = !isLocked,
@@ -156,67 +142,28 @@ fun BlockScreen(
 
         Button(
             onClick = {
-                if (isParentAuthMode) {
-                    viewModel.verifyParentPassword(passwordInput) { success ->
-                        if (success) {
+                viewModel.useTempPassword(passwordInput) { success ->
+                    if (success) {
+                        failedAttempts = 0
+                        onUnlocked()
+                    } else {
+                        failedAttempts += 1
+                        if (failedAttempts >= MAX_UNLOCK_ATTEMPTS) {
+                            lockedUntilMs = System.currentTimeMillis() + LOCKOUT_DURATION_MS
+                            nowMs = System.currentTimeMillis()
                             failedAttempts = 0
-                            // 保護者パスワードの場合は 60分 追加して確実に解除する
-                            viewModel.addExtensionTime(60)
-                            onUnlocked()
-                        } else {
-                            errorMessage = "保護者パスワードが違います"
                         }
-                    }
-                } else {
-                    viewModel.useTempPassword(passwordInput) { success ->
-                        if (success) {
-                            failedAttempts = 0
-                            onUnlocked()
-                        } else {
-                            failedAttempts += 1
-                            if (failedAttempts >= MAX_UNLOCK_ATTEMPTS) {
-                                lockedUntilMs = System.currentTimeMillis() + LOCKOUT_DURATION_MS
-                                nowMs = System.currentTimeMillis()
-                                failedAttempts = 0
-                            }
-                            errorMessage = "パスワードが無効か、使用済みです"
-                        }
+                        errorMessage = "パスワードが無効か、使用済みです"
                     }
                 }
             },
             enabled = !isLocked,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (isParentAuthMode) "保護者認証で解除 (+60分)" else "延長する (15分)")
-        }
-
-        TextButton(onClick = { 
-            isParentAuthMode = !isParentAuthMode 
-            errorMessage = null
-            passwordInput = ""
-        }) {
-            Text(if (isParentAuthMode) "一時パスワード入力に戻る" else "保護者パスワードで解除する")
+            Text("延長する (15分)")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = {
-                val intent = context.packageManager.getLaunchIntentForPackage("com.openai.chatgpt")
-                if (intent != null) {
-                    context.startActivity(intent)
-                    (context as? ComponentActivity)?.finish()
-                } else {
-                    Toast.makeText(context, "ChatGPTがインストールされていません", Toast.LENGTH_SHORT).show()
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-        ) {
-            Text("ChatGPTを開く (学習用)")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedButton(
             onClick = {

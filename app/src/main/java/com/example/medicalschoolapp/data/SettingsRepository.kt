@@ -25,13 +25,11 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
  */
 interface SettingsRepository {
     val startDateFlow: Flow<Long>
-    val initialBaseTimeFlow: Flow<Int>
     val isParentPasswordSetFlow: Flow<Boolean>
     val tempPasswordsFlow: Flow<List<TempPassword>>
     val appCategoriesFlow: Flow<Map<String, Boolean>>
     val dailyUsageStatsFlow: Flow<Pair<Long, Int>>
     val baseTimeFlow: Flow<Int?>
-    val usageBaselineFlow: Flow<Long>
     val studySchedulesFlow: Flow<List<StudySchedule>>
     val isPseudoRestrictionFlow: Flow<Boolean>
 
@@ -49,11 +47,7 @@ interface SettingsRepository {
     suspend fun setBaseTime(minutes: Int)
     suspend fun setStudySchedules(schedules: List<StudySchedule>)
     suspend fun setPseudoRestriction(active: Boolean)
-    suspend fun resetParentPassword()
-    suspend fun clearStartDate()
-    suspend fun notifyUnlockEvent()
     fun isStudyTimeNow(): Boolean
-    fun isRecentlyUnlocked(): Boolean
 }
 
 class LocalSettingsRepository(private val context: Context) : SettingsRepository {
@@ -69,9 +63,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val DAILY_USAGE_TIME_MS = longPreferencesKey("daily_usage_time_ms")
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
         val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
-        val USAGE_BASELINE_MS = longPreferencesKey("usage_baseline_ms")
-        val INITIAL_BASE_TIME_MINS = intPreferencesKey("initial_base_time_mins")
-        val LAST_UNLOCK_TIME_MS = longPreferencesKey("last_unlock_time_ms")
         val STUDY_SCHEDULES = stringPreferencesKey("study_schedules") // JSON list
         val IS_PSEUDO_RESTRICTION = booleanPreferencesKey("is_pseudo_restriction")
 
@@ -93,8 +84,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             "com.miui.home",
             "com.huawei.android.launcher",
             "com.samsung.android.messaging",
-            "com.google.android.apps.messaging",
-            "com.openai.chatgpt"
+            "com.google.android.apps.messaging"
         )
     }
 
@@ -107,13 +97,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     }
 
     override val startDateFlow: Flow<Long> = context.dataStore.data.map { preferences ->
-        preferences[START_DATE] ?: 0L // 0L means not set yet
-    }
-
-    override val initialBaseTimeFlow: Flow<Int> = context.dataStore.data.map { preferences ->
-        // If START_DATE already exists but INITIAL_BASE_TIME_MINS doesn't, it's an old user -> 120 mins
-        // If both don't exist, it will be set to 240 mins when setStartDate is called
-        preferences[INITIAL_BASE_TIME_MINS] ?: (if (preferences.contains(START_DATE)) 120 else 240)
+        preferences[START_DATE] ?: System.currentTimeMillis()
     }
 
     override val isParentPasswordSetFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -150,10 +134,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         preferences[BASE_TIME_MINS]
     }
 
-    override val usageBaselineFlow: Flow<Long> = context.dataStore.data.map { preferences ->
-        preferences[USAGE_BASELINE_MS] ?: 0L
-    }
-
     override val studySchedulesFlow: Flow<List<StudySchedule>> = context.dataStore.data.map { preferences ->
         val json = preferences[STUDY_SCHEDULES] ?: "[]"
         val type = object : TypeToken<List<StudySchedule>>() {}.type
@@ -168,11 +148,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         context.dataStore.edit { preferences ->
             if (!preferences.contains(START_DATE)) {
                 preferences[START_DATE] = date
-                // 新規ユーザーは4時間から開始
-                preferences[INITIAL_BASE_TIME_MINS] = 240
-            } else if (!preferences.contains(INITIAL_BASE_TIME_MINS)) {
-                // 既存ユーザーで初期時間が未保存の場合は旧デフォルトの2時間を保存
-                preferences[INITIAL_BASE_TIME_MINS] = 120
             }
         }
     }
@@ -184,9 +159,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
     }
 
     override suspend fun verifyParentPassword(password: String): Boolean {
-        // 緊急用：0000 であれば常に許可する
-        if (password == "0000") return true
-
         val storedHash = context.dataStore.data.map { it[PARENT_PASSWORD] }.first() ?: return false
         return PasswordHasher.matches(password, storedHash)
     }
@@ -261,8 +233,7 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
                 preferences[DAILY_USAGE_DATE] = dateStartOfDay
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
                 preferences[EXTENDED_TIME_MINS_TODAY] = 0
-                preferences[USAGE_BASELINE_MS] = 0L // 日付が変わったら基準点もリセット
-                // preferences.remove(BASE_TIME_MINS) // コメントアウト：手動設定時間を保持するように変更
+                preferences.remove(BASE_TIME_MINS) // Return to automatic time calculation
             } else {
                 // Same day, update time
                 preferences[DAILY_USAGE_TIME_MS] = usageTimeMs
@@ -292,25 +263,8 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         context.dataStore.edit { preferences ->
             if (minutes < 0) {
                 preferences.remove(BASE_TIME_MINS)
-                preferences[USAGE_BASELINE_MS] = 0L
             } else {
                 preferences[BASE_TIME_MINS] = minutes
-                
-                // 手動設定した瞬間、その時点での累積使用時間を「基準点」として保存
-                val now = System.currentTimeMillis()
-                val todayStart = TimeCalculator.getStartOfDayMs(now)
-                preferences[DAILY_USAGE_DATE] = todayStart
-                
-                // 現在までの使用量を「ベースライン」として記録することで、
-                // これ以降の使用量だけをカウントするようにし、設定時間を100%確保する
-                kotlinx.coroutines.runBlocking {
-                    val currentUsage = UsageTracker.getTodayPlayUsageMs(context, object : SettingsRepository by this@LocalSettingsRepository {
-                        override val appCategoriesFlow = this@LocalSettingsRepository.appCategoriesFlow
-                    })
-                    preferences[USAGE_BASELINE_MS] = currentUsage
-                }
-                
-                preferences[EXTENDED_TIME_MINS_TODAY] = 0
             }
         }
     }
@@ -325,37 +279,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         context.dataStore.edit { preferences ->
             preferences[IS_PSEUDO_RESTRICTION] = active
         }
-    }
-
-    override suspend fun resetParentPassword() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(PARENT_PASSWORD)
-        }
-    }
-
-    override suspend fun clearStartDate() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(START_DATE)
-            preferences.remove(INITIAL_BASE_TIME_MINS)
-            preferences.remove(DAILY_USAGE_DATE)
-            preferences.remove(DAILY_USAGE_TIME_MS)
-            preferences.remove(EXTENDED_TIME_MINS_TODAY)
-            preferences.remove(USAGE_BASELINE_MS)
-        }
-    }
-
-    override suspend fun notifyUnlockEvent() {
-        context.dataStore.edit { preferences ->
-            preferences[LAST_UNLOCK_TIME_MS] = System.currentTimeMillis()
-        }
-    }
-
-    override fun isRecentlyUnlocked(): Boolean {
-        val lastUnlock = kotlinx.coroutines.runBlocking {
-            context.dataStore.data.first()[LAST_UNLOCK_TIME_MS] ?: 0L
-        }
-        // 解除から5分以内は制限を無効化する
-        return (System.currentTimeMillis() - lastUnlock) < (5 * 60 * 1000L)
     }
 
     override fun isStudyTimeNow(): Boolean {

@@ -23,7 +23,6 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     val tempPasswords = repository.tempPasswordsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val initialBaseTimeMins = repository.initialBaseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 240)
     val studySchedules = repository.studySchedulesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isPseudoRestrictionActive = repository.isPseudoRestrictionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -33,33 +32,20 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
     private val refreshTrigger = MutableStateFlow(0L)
 
     private val liveUsedTimeMsFlow = refreshTrigger.map { repository.getTodayPlayUsageMs() }
-    val todayUsedTimeMs = liveUsedTimeMsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val remainingTimeMs: StateFlow<Long> = combine(
         repository.startDateFlow,
         liveUsedTimeMsFlow,
         repository.dailyUsageStatsFlow,
-        repository.baseTimeFlow,
-        repository.initialBaseTimeFlow,
-        repository.usageBaselineFlow
-    ) { flows ->
-        val start = flows[0] as Long
-        val usedTimeMs = flows[1] as Long
-        val stats = flows[2] as Pair<Long, Int>
-        val manualBaseMins = flows[3] as Int?
-        val initialBaseMins = flows[4] as Int
-        val baselineMs = flows[5] as Long
-
+        repository.baseTimeFlow
+    ) { start, usedTimeMs, stats, manualBaseMins ->
         val extendedTimeMins = stats.second
         val now = System.currentTimeMillis()
         
         // Use manual override if set, otherwise use the auto-calculating base time
-        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now, initialBaseMins)
+        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now)
 
-        // 基準点（設定した時点の使用量）を差し引いて、純粋にそれ以降の使用量を計算
-        val effectiveUsedMs = (usedTimeMs - baselineMs).coerceAtLeast(0L)
-
-        TimeCalculator.getRemainingTimeTodayMs(start, now, effectiveUsedMs, extendedTimeMins, baseMins)
+        TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins, baseMins)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 120 * 60 * 1000L)
 
     val commonTestCountdown = MutableStateFlow(TimeCalculator.getCountdownToCommonTest())
@@ -101,10 +87,6 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
 
     fun setBaseTime(minutes: Int) {
         viewModelScope.launch {
-            // 現在の累積使用時間を取得
-            val currentUsage = repository.getTodayPlayUsageMs()
-            // 使用時間を上書き（リセット）してから基本時間を設定
-            repository.updateDailyUsage(TimeCalculator.getStartOfDayMs(System.currentTimeMillis()), currentUsage)
             repository.setBaseTime(minutes)
             refreshRemainingTime()
         }
@@ -129,23 +111,6 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
             val expiresAt = System.currentTimeMillis() + (expiresInHours * 60 * 60 * 1000L)
             val tp = TempPassword(code = code, expiresAt = expiresAt)
             repository.addTempPassword(tp)
-        }
-    }
-
-    fun addExtensionTime(minutes: Int) {
-        viewModelScope.launch {
-            repository.notifyUnlockEvent() // 解除イベントを通知
-            repository.addExtendedTime(minutes, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
-            refreshRemainingTime()
-        }
-    }
-
-    fun resetStartDate() {
-        viewModelScope.launch {
-            repository.clearStartDate()
-            // 削除後、現在の時刻で再初期化
-            repository.setStartDate(System.currentTimeMillis())
-            refreshRemainingTime()
         }
     }
 

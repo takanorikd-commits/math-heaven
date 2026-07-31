@@ -23,34 +23,7 @@ public static class MachineWideSetupService
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "MedicalSchoolApp.Windows");
 
-    /// <summary>
-    /// 全アカウントから実行できるよう、exe本体一式をコピーする先。
-    /// 元の実行場所（例: 特定アカウントのDocuments配下）は他アカウントから
-    /// アクセスできないため、ここに置き直したものをHKLM Runキーに登録する。
-    /// </summary>
-    public static string BinDir => Path.Combine(ProgramDataDir, "bin");
-
-    /// <summary>
-    /// 実際にHKLMのRunキーが登録されているかで判定する（ProgramDataフォルダの有無ではない）。
-    /// フォルダは無効化後も設定・履歴を残すため消さない一方、レジストリキーは
-    /// 無効化で確実に消えるため、ボタンの状態表示や再登録の判定はこちらを信頼できる。
-    /// レジストリの読み取り自体は管理者権限不要。
-    /// </summary>
-    public static bool IsMachineWideEnabled
-    {
-        get
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(RunKeyPath, writable: false);
-                return key?.GetValue(MainValueName) != null;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
+    public static bool IsMachineWideEnabled => Directory.Exists(ProgramDataDir);
 
     /// <summary>
     /// UAC昇格を要求してこのexeを--register-machine-wide付きで再起動し、完了を待つ。
@@ -89,47 +62,28 @@ public static class MachineWideSetupService
     /// 管理者権限で実行された時だけ呼ばれる本体。UIは出さずに処理して即終了する。
     /// 万一(想定外に)管理者権限が無い状態で呼ばれても、例外でアプリごとクラッシュしないよう
     /// 内部で握りつぶす（呼び出し元はプロセスの正常終了=成功とみなす簡易的な作りのため）。
+    /// レジストリ登録が両方成功した場合のみProgramDataフォルダを作る
+    /// （IsMachineWideEnabledの判定=フォルダ存在、を登録成功と一致させるため）。
     /// </summary>
     public static void RunElevatedRegistration()
     {
-        try
-        {
-            Directory.CreateDirectory(ProgramDataDir);
-            // Users権限を(OI)(CI)で継承付与しておくことで、この後コピーするbin配下のファイルにも
-            // 自動的に同じ権限が引き継がれる（すべてのアカウントが実行できるようにするため）。
-            GrantUsersFullControl(ProgramDataDir);
+        var exeDir = AppContext.BaseDirectory;
+        var mainOk = WriteRunKey(MainValueName, Path.Combine(exeDir, "MedicalSchoolApp.Windows.exe"));
+        var watchdogOk = WriteRunKey(WatchdogValueName, Path.Combine(exeDir, "MedicalSchoolApp.Windows.Watchdog.exe"));
 
-            // 元の実行場所（特定アカウントのDocuments配下等）は他アカウントからアクセスできないため、
-            // 全アカウントが読み書きできるProgramData配下にexe一式をコピーし、そちらを登録する。
-            CopyDirectory(AppContext.BaseDirectory, BinDir);
-        }
-        catch
+        if (!mainOk || !watchdogOk)
         {
             return;
         }
 
-        WriteRunKey(MainValueName, Path.Combine(BinDir, "MedicalSchoolApp.Windows.exe"));
-        WriteRunKey(WatchdogValueName, Path.Combine(BinDir, "MedicalSchoolApp.Windows.Watchdog.exe"));
-    }
-
-    private static void CopyDirectory(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-        foreach (var file in Directory.GetFiles(sourceDir))
+        try
         {
-            var destFile = Path.Combine(destDir, Path.GetFileName(file));
-            try
-            {
-                File.Copy(file, destFile, overwrite: true);
-            }
-            catch
-            {
-                // 実行中の自分自身のexe/dll等、ロックされていてコピーできないものは無視する
-            }
+            Directory.CreateDirectory(ProgramDataDir);
+            GrantUsersFullControl(ProgramDataDir);
         }
-        foreach (var dir in Directory.GetDirectories(sourceDir))
+        catch
         {
-            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)));
+            // ignore
         }
     }
 
