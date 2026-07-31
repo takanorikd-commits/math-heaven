@@ -131,8 +131,8 @@ public partial class ParentSettingsWindow : Window
 
         RefreshMachineWideStatus();
         MachineWideMessageText.Text = enabling
-            ? "有効にしました。他のアカウントでは次回ログイン時から自動的に保護されます。"
-            : "無効にしました。このアカウントのみ、次回起動時から通常の自動起動に戻ります。";
+            ? "有効にしました。サインアウト→サインインだけでは反映されない場合があるため、他のアカウントで保護されることを確認したい場合はPC自体を再起動してください。"
+            : "無効にしました。反映にはPCの再起動が必要な場合があります。";
         MachineWideMessageText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81));
     }
 

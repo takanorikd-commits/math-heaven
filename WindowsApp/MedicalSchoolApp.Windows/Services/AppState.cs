@@ -37,5 +37,26 @@ public static class AppState
         UsageService.Save(Usage);
     }
 
+    /// <summary>
+    /// 設定をディスクから読み直す。「全アカウントで保護」時は複数プロセスが同じ
+    /// settings.jsonを共有するため、他アカウントで行われた変更（勉強時間・上限分等）を
+    /// 反映するために定期的に呼ぶ必要がある。Settingsはこのプロセス自身が書き込む以外に
+    /// 途中経過を持たないため、いつ読み直しても安全。
+    /// </summary>
+    public static void ReloadSettings()
+    {
+        Settings = SettingsService.Load();
+    }
+
+    /// <summary>
+    /// 使用履歴をディスクから読み直す。Usageは1秒ごとの加算をメモリ上に溜めて
+    /// 5秒毎に書き出す方式のため、SaveUsage()の直後（書き出しが完了した後）に
+    /// 呼ぶこと。そうしないと、まだ書き出していない自分自身の増分を失う。
+    /// </summary>
+    public static void ReloadUsage()
+    {
+        Usage = UsageService.Load();
+    }
+
     public static DayUsage TodayUsage => UsageService.GetOrCreateToday(Usage);
 }
