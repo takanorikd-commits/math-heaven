@@ -23,7 +23,12 @@ public static class MachineWideSetupService
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "MedicalSchoolApp.Windows");
 
-    public static bool IsMachineWideEnabled => Directory.Exists(ProgramDataDir);
+    /// <summary>
+    /// 「全アカウントで保護」が有効かどうか。HKLM Runキーに本体が実際に登録されているかで判定する
+    /// （ProgramDataフォルダの有無では判定しない。無効化時はデータ保護のためフォルダを残す仕様のため、
+    /// フォルダ存在で判定すると無効化してもずっと「有効」のまま表示され続けてしまう）。
+    /// </summary>
+    public static bool IsMachineWideEnabled => GetRegisteredMainExePath() is not null;
 
     /// <summary>
     /// HKLM Runキーに現在登録されている本体exeのパス（未登録ならnull）。

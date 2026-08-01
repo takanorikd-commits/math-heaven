@@ -35,9 +35,27 @@ internal static class Program
         }
     }
 
-    /// <summary>全アカウント共有(ProgramData)モードが有効か。この場合HKLM側がRunキーを担当するのでHKCUには自己登録しない。</summary>
-    private static bool IsMachineWideMode => Directory.Exists(
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MedicalSchoolApp.Windows"));
+    /// <summary>
+    /// 全アカウント共有モードが有効か。この場合HKLM側がRunキーを担当するのでHKCUには自己登録しない。
+    /// HKLM Runキーに自分(Watchdog)が実際に登録されているかで判定する（ProgramDataフォルダの有無では判定しない。
+    /// 無効化時はデータ保護のためフォルダを残す仕様のため、フォルダ存在で判定すると無効化してもずっと
+    /// 有効なままとみなされ、このアカウント用のHKCU自己登録が復活しなくなってしまう）。
+    /// </summary>
+    private static bool IsMachineWideMode
+    {
+        get
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(RunKeyPath, writable: false);
+                return key?.GetValue(RunValueName) is not null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
     private static string ShutdownFlagPath => Path.Combine(AppDataDir, "shutdown.flag");
     private static string LogPath => Path.Combine(AppDataDir, "watchdog.log");
