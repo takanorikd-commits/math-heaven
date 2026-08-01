@@ -175,15 +175,18 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 
-    private void RunElevatedTaskAndExit(Action task)
+    private void RunElevatedTaskAndExit(Func<bool> task)
     {
+        var success = false;
         try
         {
-            task();
+            success = task();
         }
         finally
         {
-            Shutdown();
+            // 呼び出し元（MachineWideSetupService.RunElevated）はこの終了コードで
+            // 実際の登録成否を判定するため、falseの場合は非0で終了する必要がある。
+            Shutdown(success ? 0 : 1);
         }
     }
 }

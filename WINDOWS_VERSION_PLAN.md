@@ -246,4 +246,28 @@ Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の
 3. **ProgramData と AppData の設定同期**: `SettingsService` にて `%ProgramData%`（共有設定）と `%APPDATA%`（ユーザー別設定）間の設定同期を双方向に強化。
 4. **ブロック画面最前面化**: `App.ShowBlockWindow()` にて `Refresh()` および `WindowState.Maximized` を強制し、勉強時間到達時に確実に画面に最前面オーバーレイが表示されるよう修正。
 
+### 追記（2026-08-01 その3）: 「全アカウントで保護」の自動起動が子供のアカウントで効かない不具合を修正
+保護者から「子供のアカウントでアプリが自動起動しない」との報告を受け、`MachineWideSetupService`/`App.xaml.cs` を調査し、以下2点の実装バグを特定・修正した。
+
+**根本原因（コードバグ）**:
+1. `MachineWideSetupService.RunElevatedRegistration()` は本体・Watchdog双方のHKLM Runキー書き込み結果（`mainOk`/`watchdogOk`）を呼び出し元に返しておらず、`void`メソッドだった。呼び出し元の`App.xaml.cs`の`RunElevatedTaskAndExit`は処理後に常に`Shutdown()`（終了コード0）していたため、`MachineWideSetupService.RunElevated()`内の`process.ExitCode == 0`判定は**レジストリ書き込みが実際に失敗していても常にtrueになっていた**。つまり保護者設定画面の「全アカウントで保護を有効にする」は、UAC承認後に内部で何が起きても必ず「有効にしました」と表示されるようになっていた。
+2. コード内コメントには「レジストリ登録が両方成功した場合のみProgramDataフォルダを作る」と書かれていたが、実装は`mainOk`/`watchdogOk`の値を見ずに無条件で`Directory.CreateDirectory(ProgramDataDir)`を実行していた。`IsMachineWideEnabled`（＝「全アカウントで保護」の状態表示）はこのフォルダの存在だけで判定しているため、HKLMへのRunキー書き込みが失敗していても「有効」と表示され続ける状態になり得た。
+
+この2つの組み合わせにより、HKLM Runキーの登録が実際には行われて（または後から無効になって）いなくても、保護者設定画面には「有効（全アカウントで保護中）」と表示され続けてしまい、子供のアカウント（HKCUではなくHKLM側の登録のみに依存）では自動起動しない、という状態が発生し得た。
+
+**修正内容**:
+- `MachineWideSetupService.RunElevatedRegistration()`／`RunElevatedUnregistration()`を`bool`を返すように変更し、`mainOk && watchdogOk`が両方成功した場合のみProgramDataフォルダ作成・ACL付与・共有スタートアップショートカット作成を行うよう修正（ドキュメント化されていた前提と実装を一致させた）。
+- `App.xaml.cs`の`RunElevatedTaskAndExit`を`Func<bool>`を受け取るように変更し、実際の成否に応じて`Shutdown(0)`/`Shutdown(1)`で終了コードを正しく返すよう修正。これにより`EnableMachineWide()`/`DisableMachineWide()`の戻り値が実態を反映するようになった。
+- 診断用に`MachineWideSetupService.GetRegisteredMainExePath()`を追加し、`ParentSettingsWindow`の「全アカウントで保護」ステータス表示に、現在HKLMに登録されている実行ファイルパスと実際に動いているパスが一致しているかのチェック（`CheckMachineWidePathMismatch`）を追加。アプリを別フォルダへ再配置した後に登録し直しを忘れた場合など、パスの不一致を保護者が画面上で気づけるようにした。
+
+**ビルド確認**: `dotnet build WindowsApp\MedicalSchoolApp.Windows.sln` → 0エラー・0警告で成功。
+
+**実機での対応が必要な手順（子供PC本機）**:
+1. 修正版をRelease publishし直し、`C:\MedicalSchoolApp\` へ再配置する。
+2. 保護者設定画面を開き、「全アカウントで保護」が既に「有効」と表示されていても、一度「このアカウント専用に戻す」→「全アカウントで保護を有効にする」を実行し直し、UACダイアログで管理者パスワードを入力する（今回の修正により、この時点で実際に失敗していれば正しくエラーメッセージが表示されるようになった）。
+3. 併せて、Windowsのタスクマネージャー「スタートアップアプリ」タブで本アプリ（`MedicalSchoolAppWindows`）が「無効」にされていないかも確認する（Windows標準機能で個別に無効化されている場合、レジストリのRunキー自体は正しくてもスタートアップ時に実行されないため）。
+4. 子供のアカウントで再ログインし、自動起動を確認する。
+
+**未検証（次回引き継ぎ時の課題）**: 上記1〜4の実機フロー自体は、UAC昇格の対話操作を含むため、このセッションのツールからは実行・検証できていない。次回、実機で保護者による確認が必要。
+
 

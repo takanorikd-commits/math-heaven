@@ -26,8 +26,28 @@ public static class MachineWideSetupService
     public static bool IsMachineWideEnabled => Directory.Exists(ProgramDataDir);
 
     /// <summary>
+    /// HKLM Runキーに現在登録されている本体exeのパス（未登録ならnull）。
+    /// アプリを別フォルダへ移動・再配置した後にRunキーの登録し直しを忘れていないか、
+    /// 保護者設定画面で現在の実行パスと突き合わせて確認するための診断用。
+    /// </summary>
+    public static string? GetRegisteredMainExePath()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(RunKeyPath, writable: false);
+            var raw = key?.GetValue(MainValueName) as string;
+            return raw?.Trim('"');
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// UAC昇格を要求してこのexeを--register-machine-wide付きで再起動し、完了を待つ。
-    /// 戻り値: 昇格・登録が成功したか（ユーザーがUACをキャンセルした場合はfalse）。
+    /// 戻り値: 昇格・登録が成功したか（ユーザーがUACをキャンセルした場合や、
+    /// レジストリ書き込みが実際に失敗した場合はfalse）。
     /// </summary>
     public static bool EnableMachineWide() => RunElevated(RegisterArg);
 
@@ -60,12 +80,13 @@ public static class MachineWideSetupService
 
     /// <summary>
     /// 管理者権限で実行された時だけ呼ばれる本体。UIは出さずに処理して即終了する。
-    /// 万一(想定外に)管理者権限が無い状態で呼ばれても、例外でアプリごとクラッシュしないよう
-    /// 内部で握りつぶす（呼び出し元はプロセスの正常終了=成功とみなす簡易的な作りのため）。
+    /// 戻り値: レジストリ登録（本体・Watchdog双方のHKLM Runキー書き込み）が両方成功したか。
+    /// 呼び出し元（App.xaml.cs）はこの戻り値をプロセスの終了コードに変換し、
+    /// EnableMachineWide()が実際の成否を判定できるようにする。
     /// レジストリ登録が両方成功した場合のみProgramDataフォルダを作る
     /// （IsMachineWideEnabledの判定=フォルダ存在、を登録成功と一致させるため）。
     /// </summary>
-    public static void RunElevatedRegistration()
+    public static bool RunElevatedRegistration()
     {
         var exeDir = AppContext.BaseDirectory;
         var mainExe = Path.Combine(exeDir, "MedicalSchoolApp.Windows.exe");
@@ -74,16 +95,22 @@ public static class MachineWideSetupService
         var mainOk = WriteRunKey(MainValueName, mainExe);
         var watchdogOk = WriteRunKey(WatchdogValueName, watchdogExe);
 
+        if (!mainOk || !watchdogOk)
+        {
+            return false;
+        }
+
         try
         {
             Directory.CreateDirectory(ProgramDataDir);
             GrantUsersFullControl(ProgramDataDir);
             GrantUsersFullControl(exeDir);
             CreateCommonStartupShortcut(mainExe);
+            return true;
         }
         catch
         {
-            // ignore
+            return false;
         }
     }
 
@@ -115,17 +142,18 @@ public static class MachineWideSetupService
         }
     }
 
-    public static void RunElevatedUnregistration()
+    public static bool RunElevatedUnregistration()
     {
         try
         {
             RemoveRunKey(MainValueName);
             RemoveRunKey(WatchdogValueName);
             // ProgramData配下の設定・履歴ファイルは誤操作でのデータ消失を避けるため削除しない
+            return true;
         }
         catch
         {
-            // ignore
+            return false;
         }
     }
 

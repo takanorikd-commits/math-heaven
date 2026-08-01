@@ -1,90 +1,79 @@
-# 📋 医学部合格アプリ（Windows版） ベータ版 完成＆次回開発申し送り書 (Handover Document)
+# 申し送りドキュメント: Windows版「医学部合格アプリ」開発引き継ぎ
 
-> **作成日時**: 2026年7月26日  
-> **開発ステータス**: **ベータ版 (Beta 1.0) 完成・実機動作検証済み**  
-> **リポジトリ**: `https://github.com/takanorikd-commits/math-heaven.git`  
-
----
-
-## 🚨 次のAIエージェント / 開発者への【最重要鉄則】
-
-1. **`app/` フォルダ（Androidアプリ）は絶対に編集・変更しないでください！**
-   - 本リポジトリにはAndroid版（`app/`）とWindows版（`WindowsApp/`）が同居しています。
-   - すべてのWindows開発・改修は **`WindowsApp/MedicalSchoolApp.Windows/`** 配下でのみ行ってください。
-2. **コードを変更したら必ず `dotnet build` で 0 エラー・0 警告を確認してください。**
-   - ビルドコマンド: `dotnet build WindowsApp\MedicalSchoolApp.Windows.sln`
-3. **AIエージェントや開発ツールのプロセス保護（`SafeList`）を維持してください。**
-   - `WindowsApp/MedicalSchoolApp.Windows/Services/ProcessMonitor.cs` 内の `SafeList` に、開発に使用するツール（例: `antigravity.exe`, `code.exe`, `powershell.exe`, `cmd.exe` 等）が登録されていることを確認してください。登録されていないと、制限モードテスト時に開発ツール自体が強制終了されます。
+**最終更新日**: 2026年8月1日  
+**対象AIエージェント / 開発者**: Claude Code または別のAIエージェント  
+**リポジトリ**: `https://github.com/takanorikd-commits/math-heaven.git` (ブランチ: `main`)
 
 ---
 
-## 🛠️ ベータ版で完成・検証された主要機能一覧
+## 1. プロジェクトの概要と配置
 
-| 機能エリア | 実装内容・仕様 | 主な関連ファイル |
-| :--- | :--- | :--- |
-| **0エラービルド** | .NET 8 (WPF) / C# にて警告・エラー0で完全ビルド・動作 | `MedicalSchoolApp.Windows.sln` |
-| **1秒周期監視** | 1秒ごとに許可アプリ外の非SafeListプロセスを検知・終了 | `Services/ProcessMonitor.cs` |
-| **相互監視ウォッチドッグ** | 本体プロセス終了時に自動で再起動して制限回避を防止 | `MedicalSchoolApp.Windows.Watchdog/` |
-| **全アカウント保護** | HKLM Runキー自動起動登録 + ProgramData共通設定フォルダ + ACL `icacls` 削除禁止制御 | `Services/MachineWideSetupService.cs` |
-| **最前面ブロック画面** | `Topmost=True`, `WindowState=Maximized`, `WindowStyle=None` で全画面を覆うブロック画面 | `Views/BlockWindow.xaml(.cs)` |
-| **保護者パスワード解錠** | ブロック画面で保護者パスワード（初期 `0000`）入力により即座に解除（勉強時間中:60分解除 / 1日超過:60分延長） | `Views/BlockWindow.xaml.cs` (`TryRedeem`) |
-| **無期限使い捨て一時コード** | 事前に複数発行可能・有効期限なし・1回入力で自動使い捨て＆一覧から自動完全消去 | `Views/BlockWindow.xaml.cs`, `Views/ParentSettingsWindow.xaml.cs` |
-| **ダッシュボード** | 残り時間内訳表示（例: `46 分 (基本90分 + 延長90分)`）＆ `🧪 疑似制限モード` ワンタップテストボタン | `Views/DashboardWindow.xaml(.cs)` |
-| **二重起動時の前面化** | 名前付きイベント (`EventWaitHandle`) により、常駐中にアイコンをダブルクリックすると自動でダッシュボードが最前面に表示 | `App.xaml.cs` |
-| **デスクトップアイコン** | `MedicalSchoolApp.lnk` / `医学部合格アプリ.lnk` の正確な生成 | `scratch/clean_shortcuts.vbs` |
+本アプリは、子供の Windows PC での遊びアプリの使用時間を制限し、勉強時間帯の保護、および ChatGPT 専用ブラウザ（WebView2）による学習支援を提供する常駐型 WPF アプリケーションです。
+
+* **プロジェクトフォルダ**: `WindowsApp/` （ルート直下）
+  * メインアプリ: `WindowsApp/MedicalSchoolApp.Windows/`
+  * ウォッチドッグ（相互監視）: `WindowsApp/MedicalSchoolApp.Windows.Watchdog/`
+* **本番実機設置パス（子供のPC上）**: `C:\MedicalSchoolApp\`
+* **重要制約**: 既存の Android版（ルートの `app/` フォルダおよび Gradle 関連ファイル）には**絶対に触れない**こと。Windows版は `WindowsApp/` に完全独立しています。
 
 ---
 
-## 📂 アーキテクチャとディレクトリ構造
+## 2. 現在のステータス（2026-08-01 時点）
 
-```text
-C:\Users\takst\Documents\antigravity\MedicalSchoolApp\
-├── WindowsApp/
-│   ├── MedicalSchoolApp.Windows.sln              # メインソリューション
-│   ├── MedicalSchoolApp.Windows/                 # Windows WPF メインアプリ
-│   │   ├── App.xaml / App.xaml.cs               # アプリライフサイクル・Mutex・EventWaitHandle
-│   │   ├── Models/                              # AppSettings.cs, DayUsage.cs, TempPasswordInfo.cs
-│   │   ├── Services/                            # ProcessMonitor.cs, ModeService.cs, MachineWideSetupService.cs
-│   │   └── Views/                               # DashboardWindow.xaml, BlockWindow.xaml, ParentSettingsWindow.xaml
-│   └── MedicalSchoolApp.Windows.Watchdog/       # ウオッチドッグ常駐プロセス
-├── WINDOWS_VERSION_PLAN.md                      # 全体開発計画書
-└── WINDOWS_BETA_HANDOVER.md                     # 本申し送り書
+**Beta 1.0 完成・バグ修正＆子供用PC実機配置完了済み**
+
+### 2026-08-01 に完了・修正した重要事項
+1. **勉強時間制限パースの強化 (`ModeService.cs`)**:
+   * 全角数字（`０-９`）や全角コロン（`：`）が含まれていても正常にパースできるよう正規化処理 (`NormalizeTimeStr`) を導入。
+2. **深夜0時跨ぎ（24時跨ぎ）の時間帯判定 (`ModeService.cs`)**:
+   * `22:00 〜 01:00` のような日を跨ぐ勉強時間設定でも、`start > end` の条件分岐により正しく時間内であるかを判定できるように拡張。
+3. **設定ファイル同期 (`SettingsService.cs`)**:
+   * 全アカウント保護モードで使われる `%ProgramData%\MedicalSchoolApp.Windows\settings.json` と、ユーザー個別設定 `%APPDATA%\MedicalSchoolApp.Windows\settings.json` 間の設定同期を双方向に自動化。
+4. **ブロック画面の描画・最前面化強化 (`App.xaml.cs` / `BlockWindow.xaml.cs`)**:
+   * `App.ShowBlockWindow()` 実行時に `WindowState.Maximized` および `Topmost = true` を適用し、ぬる安全ガード (`if (!IsLoaded || ReasonText is null) return;`) を追加。
+5. **子供用PC実機への配置**:
+   * Release（本番用）構成で publish し、`C:\MedicalSchoolApp\` へバイナリ一式を配置。
+   * デスクトップ上に `医学部合格アプリ.lnk` ショートカットを作成。
+
+---
+
+## 3. ビルドおよび配布（publish）コマンド
+
+開発中の動作確認は Debug ビルドで構いませんが、**子供の PC へ配布・配置する際は必ず `-c Release` で publish してください**（Debug ビルドには開発用プロセスの保護解除ロジックが含まれるため）。
+
+```powershell
+# メインアプリとWatchdogの両方を同一次元フォルダへRelease publish
+dotnet publish WindowsApp/MedicalSchoolApp.Windows/MedicalSchoolApp.Windows.csproj -c Release -r win-x64 --self-contained false -o WindowsApp/publish/framework-dependent
+dotnet publish WindowsApp/MedicalSchoolApp.Windows.Watchdog/MedicalSchoolApp.Windows.Watchdog.csproj -c Release -r win-x64 --self-contained false -o WindowsApp/publish/framework-dependent
 ```
 
 ---
 
-## 🚀 別PC・別AIエージェントでの開発開始（Quick Start）
+## 4. 主なアーキテクチャと機能一覧
 
-### 1. リポジトリのクローン
-```bash
-git clone https://github.com/takanorikd-commits/math-heaven.git MedicalSchoolApp
-cd MedicalSchoolApp
-```
-
-### 2. ビルド確認
-```bash
-dotnet build WindowsApp\MedicalSchoolApp.Windows.sln
-```
-
-### 3. アプリの起動・動作テスト
-```bash
-dotnet run --project WindowsApp\MedicalSchoolApp.Windows\MedicalSchoolApp.Windows.csproj
-```
+* **二重起動の防止と前面化 (`App.xaml.cs`)**:
+  * 名前付き Mutex (`Local\MedicalSchoolAppWindows_SingleInstance`) および `EventWaitHandle` を使用。二重起動を試みた場合は常駐中のダッシュボードを前面表示。
+* **プロセス監視・制限ブロック (`ProcessMonitor.cs`)**:
+  * 1秒周期のタイマーで動作。`SafeList`（OS標準プロセス、WebView2、Chrome Remote Desktop）以外のアプリを、制限モード中に自動終了 (`CloseMainWindow` → `Kill`)。
+  * `#if DEBUG` ブロックで開発ツール (`taskmgr.exe`, `cmd.exe`, `powershell.exe`, `code.exe`, `antigravity.exe` 等) の保護を本番環境から安全に隔離。
+* **相互監視ウォッチドッグ (`WatchdogService.cs` / `Watchdog/Program.cs`)**:
+  * タスクマネージャー等による強硬なプロセス終了を防ぐため、本体と Watchdog が相互に生存確認し、相手が消えていれば数秒で再起動。
+  * 正規終了（保護者パスワード認証済み）時のみ `shutdown.flag` を作成して相互停止。
+* **全アカウントでの保護 (`MachineWideSetupService.cs`)**:
+  * UAC 昇格 (`--register-machine-wide`) 経由で HKLM Run キーの自動起動を登録し、`%ProgramData%\MedicalSchoolApp.Windows\` 共有フォルダのアクセス権を `icacls` で削除防止制御。
 
 ---
 
-## 🔑 テストアカウント・デフォルト設定情報
+## 5. 引き継ぎ後の推奨タスク（次のステップ）
 
-- **保護者パスワード初期値**: `0000`
-- **制限時間の初期値**: 1日 `90` 分
-- **共通設定ファイルの保存場所**:
-  - 全アカウント保護有効時: `C:\ProgramData\MedicalSchoolApp.Windows\` (`settings.json`, `usage_history.json`)
-  - 通常時: `%APPDATA%\MedicalSchoolApp.Windows\`
+1. **実機での挙動確認**:
+   * デスクトップの `医学部合格アプリ` アイコンからアプリを起動し、保護者設定（パスワード: `0000`）から「全アカウントで保護を有効にする」を必要に応じて実行・確認する。
+   * 勉強時間帯（例: 土曜 19:00〜23:00 等）にゲームや Chrome 等を起動してみて、ブロック画面が表示され正しく終了されるかテストする。
+2. **今後の機能拡張案 (V2.0 Roadmap)**:
+   * **学習利用統計のグラフィカル表示**: 1日の利用時間推移や週ごとの勉強時間達成度の可視化。
+   * **保護者用Web/モバイル通知連携**: 一時コードの発行や利用超過通知を遠隔で受信・操作できる仕組み。
+   * **MSI/InnoSetup インストーラー化**: 初回セットアップをより簡便にするインストーラーパッケージの作成。
 
 ---
 
-## 💡 今後の拡張アイデア（V2.0に向けて）
-
-1. **学習統計グラフの更なるビジュアル化** (日別・週別の勉強時間グラフ表示)
-2. **保護者スマホへの通知連携** (LINE / メール等での一時コード送出や制限到達通知)
-3. **正式インストーラーの作成** (Inno Setup または WiX による MSI 化)
+以上の情報を引き継ぎ資料としてご利用ください。

@@ -88,6 +88,10 @@ public partial class ParentSettingsWindow : Window
             MachineWideStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81));
             MachineWideToggleButton.Content = "このアカウント専用に戻す";
             MachineWideToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x41, 0x55));
+
+            // アプリを別フォルダへ移動した後にRunキーの登録し直しを忘れると、
+            // 他アカウントでの自動起動だけが静かに効かなくなるため、ここで検知して警告する。
+            CheckMachineWidePathMismatch();
         }
         else
         {
@@ -95,6 +99,25 @@ public partial class ParentSettingsWindow : Window
             MachineWideStatusText.Foreground = System.Windows.Media.Brushes.Gray;
             MachineWideToggleButton.Content = "全アカウントで保護を有効にする";
             MachineWideToggleButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3B, 0x82, 0xF6));
+        }
+    }
+
+    private void CheckMachineWidePathMismatch()
+    {
+        var registeredPath = MachineWideSetupService.GetRegisteredMainExePath();
+        var currentPath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+        if (registeredPath is null)
+        {
+            MachineWideMessageText.Text = "警告: 全アカウント保護は有効ですが、自動起動の登録（レジストリ）が見つかりません。"
+                + "一度「このアカウント専用に戻す」→「全アカウントで保護を有効にする」を実行し直してください。";
+            MachineWideMessageText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+        }
+        else if (currentPath is not null && !string.Equals(registeredPath, currentPath, StringComparison.OrdinalIgnoreCase))
+        {
+            MachineWideMessageText.Text = "警告: 自動起動に登録されているアプリの場所が、現在実行中の場所と異なります"
+                + $"（登録先: {registeredPath}）。アプリを別フォルダへ移動・再配置した場合は、"
+                + "「このアカウント専用に戻す」→「全アカウントで保護を有効にする」を実行し直して登録を更新してください。";
+            MachineWideMessageText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
         }
     }
 
