@@ -108,8 +108,8 @@ public static class MachineWideSetupService
         try
         {
             Directory.CreateDirectory(ProgramDataDir);
-            GrantUsersFullControl(ProgramDataDir);
-            GrantUsersFullControl(exeDir);
+            GrantUsersModify(ProgramDataDir);
+            LockExeDirectoryDownForStandardUsers(exeDir);
             CreateCommonStartupShortcut(mainExe);
             return true;
         }
@@ -194,11 +194,25 @@ public static class MachineWideSetupService
         }
     }
 
-    private static void GrantUsersFullControl(string path)
+    /// <summary>設定・使用履歴フォルダ用。子供の標準アカウント自身が使用時間を書き込めるよう変更権限が必要。</summary>
+    private static void GrantUsersModify(string path) => RunIcacls($"\"{path}\" /grant Users:(OI)(CI)M /T");
+
+    /// <summary>
+    /// 実行ファイル本体のフォルダ用。子供の標準アカウントから起動（読み取り・実行）はできるが、
+    /// ファイルの削除・上書きはできないように権限を絞り込む（「勝手にアンインストールできない」ようにするための対策）。
+    /// 継承や過去のバージョンで付与された広い権限が残っていても、ここで明示的にリセットしてから絞り込む。
+    /// なお、これはNTFS権限による対策であり、子供が管理者パスワードを知っている場合や、
+    /// 別OSで起動してディスクを直接操作する等の手段までは防げない。
+    /// </summary>
+    private static void LockExeDirectoryDownForStandardUsers(string path) => RunIcacls(
+        $"\"{path}\" /inheritance:r /remove:g \"Authenticated Users\" " +
+        "/grant:r \"Administrators:(OI)(CI)F\" /grant:r \"SYSTEM:(OI)(CI)F\" /grant:r \"Users:(OI)(CI)RX\" /T");
+
+    private static void RunIcacls(string args)
     {
         try
         {
-            var psi = new ProcessStartInfo("icacls.exe", $"\"{path}\" /grant Users:(OI)(CI)M /T")
+            var psi = new ProcessStartInfo("icacls.exe", args)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -208,7 +222,7 @@ public static class MachineWideSetupService
         }
         catch
         {
-            // 失敗してもフォルダ自体は作成済みなので致命的ではない
+            // 失敗しても致命的ではない（起動自体は既存の実行権限で継続できる）
         }
     }
 }
