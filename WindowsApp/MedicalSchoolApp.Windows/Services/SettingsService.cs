@@ -33,6 +33,22 @@ public static class SettingsService
 
     private static string SettingsPath => Path.Combine(AppDataDir, "settings.json");
 
+    /// <summary>
+    /// 設定ファイルの最終更新日時（UTC）。別セッション（別Windowsアカウント）で動いている
+    /// 他のインスタンスが設定を保存したかどうかを検知するために使う。ファイルが無ければ最小値。
+    /// </summary>
+    public static DateTime GetLastWriteTimeUtc()
+    {
+        try
+        {
+            return File.Exists(SettingsPath) ? File.GetLastWriteTimeUtc(SettingsPath) : DateTime.MinValue;
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
+    }
+
     public static AppSettings Load()
     {
         Directory.CreateDirectory(AppDataDir);

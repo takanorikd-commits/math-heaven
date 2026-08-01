@@ -203,10 +203,25 @@ public static class MachineWideSetupService
     /// 継承や過去のバージョンで付与された広い権限が残っていても、ここで明示的にリセットしてから絞り込む。
     /// なお、これはNTFS権限による対策であり、子供が管理者パスワードを知っている場合や、
     /// 別OSで起動してディスクを直接操作する等の手段までは防げない。
+    ///
+    /// 注意: (OI)(CI)（コンテナ/オブジェクト継承フラグ）付きの/grant:rを/Tで個々のファイルにも
+    /// そのまま適用しようとすると、ファイル（コンテナではない）には無効な指定となり、
+    /// 「/inheritance:r」で継承を切った直後のファイルにACEが一切付かず、
+    /// 誰もアクセスできない空のDACLになってしまう不具合が実機で発生した（管理者アカウントも含め起動不能に）。
+    /// そのため、必ず「(1) 子孫の継承を一旦有効化 → (2) ルートだけ明示的に絞り込み、(OI)(CI)で
+    /// 子孫へ継承伝播させる」の2段階で行う（ルート自身にだけ(OI)(CI)付きACEを設定し、/Tは使わない）。
     /// </summary>
-    private static void LockExeDirectoryDownForStandardUsers(string path) => RunIcacls(
-        $"\"{path}\" /inheritance:r /remove:g \"Authenticated Users\" " +
-        "/grant:r \"Administrators:(OI)(CI)F\" /grant:r \"SYSTEM:(OI)(CI)F\" /grant:r \"Users:(OI)(CI)RX\" /T");
+    private static void LockExeDirectoryDownForStandardUsers(string path)
+    {
+        // 1. 子孫（サブフォルダ・ファイル）の継承を一旦有効化し、親から伝播を受けられる状態にする
+        RunIcacls($"\"{path}\" /T /Q /C /inheritance:e");
+
+        // 2. ルートフォルダ自身だけを明示的に絞り込む（/Tを付けない）。
+        //    子孫は継承が有効なままなので、この変更が自動的に伝播する。
+        RunIcacls(
+            $"\"{path}\" /inheritance:r /remove:g \"Authenticated Users\" " +
+            "/grant:r \"Administrators:(OI)(CI)F\" /grant:r \"SYSTEM:(OI)(CI)F\" /grant:r \"Users:(OI)(CI)RX\"");
+    }
 
     private static void RunIcacls(string args)
     {

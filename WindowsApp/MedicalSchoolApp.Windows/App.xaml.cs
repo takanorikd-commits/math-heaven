@@ -99,6 +99,7 @@ public partial class App : System.Windows.Application
         };
         _monitorTimer.Tick += (_, _) =>
         {
+            AppState.ReloadSettingsIfChangedOnDisk();
             ProcessMonitor.Tick();
             WatchdogService.EnsureRunning();
         };
