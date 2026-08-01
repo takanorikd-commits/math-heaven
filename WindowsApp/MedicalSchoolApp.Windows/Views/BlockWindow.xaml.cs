@@ -78,7 +78,7 @@ public partial class BlockWindow : Window
             return;
         }
 
-        var code = CodeBox.Text.Trim();
+        var code = CodeBox.Password.Trim();
         if (string.IsNullOrEmpty(code))
         {
             return;
@@ -88,7 +88,7 @@ public partial class BlockWindow : Window
         if (result)
         {
             _failedAttempts = 0;
-            CodeBox.Text = "";
+            CodeBox.Clear();
             AppState.PseudoRestrictedMode = false;
             RedeemMessageText.Text = message;
             RedeemMessageText.Foreground = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));

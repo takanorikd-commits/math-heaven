@@ -29,7 +29,7 @@
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0" x:Name="CodeBox" Padding="8" Background="#0F172A" Foreground="White" BorderBrush="#334155"
+                        <PasswordBox Grid.Column="0" x:Name="CodeBox" Padding="8" Background="#0F172A" Foreground="White" BorderBrush="#334155"
                                  KeyDown="CodeBox_KeyDown"/>
                         <Button Grid.Column="2" x:Name="RedeemButton" Content="解除・延長する" Padding="12,8" Background="#3B82F6" Foreground="White" BorderThickness="0"
                                 Click="RedeemButton_Click"/>
