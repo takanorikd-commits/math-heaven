@@ -24,6 +24,7 @@ public partial class BlockWindow : Window
 
     public void Refresh()
     {
+        if (!IsLoaded || ReasonText is null) return;
         var settings = AppState.Settings;
         var today = AppState.TodayUsage;
         var now = DateTime.Now;
