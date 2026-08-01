@@ -68,18 +68,46 @@ public static class MachineWideSetupService
     public static void RunElevatedRegistration()
     {
         var exeDir = AppContext.BaseDirectory;
-        var mainOk = WriteRunKey(MainValueName, Path.Combine(exeDir, "MedicalSchoolApp.Windows.exe"));
-        var watchdogOk = WriteRunKey(WatchdogValueName, Path.Combine(exeDir, "MedicalSchoolApp.Windows.Watchdog.exe"));
+        var mainExe = Path.Combine(exeDir, "MedicalSchoolApp.Windows.exe");
+        var watchdogExe = Path.Combine(exeDir, "MedicalSchoolApp.Windows.Watchdog.exe");
 
-        if (!mainOk || !watchdogOk)
-        {
-            return;
-        }
+        var mainOk = WriteRunKey(MainValueName, mainExe);
+        var watchdogOk = WriteRunKey(WatchdogValueName, watchdogExe);
 
         try
         {
             Directory.CreateDirectory(ProgramDataDir);
             GrantUsersFullControl(ProgramDataDir);
+            GrantUsersFullControl(exeDir);
+            CreateCommonStartupShortcut(mainExe);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void CreateCommonStartupShortcut(string targetExe)
+    {
+        try
+        {
+            var commonStartup = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                @"Microsoft\Windows\Start Menu\Programs\StartUp");
+            if (Directory.Exists(commonStartup))
+            {
+                var lnkPath = Path.Combine(commonStartup, "医学部合格アプリ.lnk");
+                Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType != null)
+                {
+                    dynamic shell = Activator.CreateInstance(shellType)!;
+                    dynamic shortcut = shell.CreateShortcut(lnkPath);
+                    shortcut.TargetPath = targetExe;
+                    shortcut.WorkingDirectory = Path.GetDirectoryName(targetExe);
+                    shortcut.Description = "医学部合格アプリ";
+                    shortcut.Save();
+                }
+            }
         }
         catch
         {
