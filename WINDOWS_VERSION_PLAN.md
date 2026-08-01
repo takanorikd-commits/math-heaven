@@ -346,4 +346,7 @@ Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の
 
 これにより、パスワード変更に限らず、勉強時間帯や1日の上限時間などあらゆる設定変更が、最大1秒程度の遅延で他アカウント側の起動中インスタンスにも反映されるようになった。
 
+### 追記（2026-08-02 その6）: ブロック画面のパスワード入力が平文表示されていた不具合を修正
+保護者から「制限解除時にパスワードを入力すると画面に数字がそのまま表示される」との報告。`Views/BlockWindow.xaml`の入力欄（`CodeBox`）が通常の`TextBox`のままになっていた（`PasswordPromptWindow`・`ParentSettingsWindow`の他のパスワード欄は元々`PasswordBox`で正しく実装済みだった、ここだけ見落とし）。`PasswordBox`に変更し、コードビハインド側も`.Text`→`.Password`、`.Text = ""`→`.Clear()`に修正。ビルド・Release publish・`C:\MedicalSchoolApp\`への配置・管理者アカウントでの起動確認まで完了（コミット`c8e0656`）。
+
 
