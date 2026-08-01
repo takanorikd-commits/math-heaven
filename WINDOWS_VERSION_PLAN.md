@@ -238,3 +238,12 @@ Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の
 3. **セキュリティチェック**:
    Releaseビルドのため、`ProcessMonitor.cs` 内の `#if DEBUG` ブロックで囲まれた開発者用ツール（`taskmgr.exe`, `powershell.exe`, `cmd.exe` 等）は含まれず、本番で子供が制限を回避できないことを確認済み。
 
+### 追記（2026-08-01 その2）: 勉強時間制限判定のバグ修正と設定同期の強化
+保護者から「現在勉強時間に指定しているのに制限がかからない」との報告を受け、原因究明と修正を実施。
+
+1. **時間表記・パースの正規化**: `ModeService.NormalizeTimeStr` を導入し、全角数字（`０-９`）や全角コロン（`：`）が含まれていても正常にパース可能に修正。
+2. **深夜跨ぎ（24時跨ぎ）の時間帯判定**: `start > end`（例: 22:00〜01:00）の場合にも正しく範囲内かを判定できるように判定条件を拡張。
+3. **ProgramData と AppData の設定同期**: `SettingsService` にて `%ProgramData%`（共有設定）と `%APPDATA%`（ユーザー別設定）間の設定同期を双方向に強化。
+4. **ブロック画面最前面化**: `App.ShowBlockWindow()` にて `Refresh()` および `WindowState.Maximized` を強制し、勉強時間到達時に確実に画面に最前面オーバーレイが表示されるよう修正。
+
+

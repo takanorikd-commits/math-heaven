@@ -36,7 +36,22 @@ public static class SettingsService
     public static AppSettings Load()
     {
         Directory.CreateDirectory(AppDataDir);
-        if (!File.Exists(SettingsPath))
+        var mainPath = SettingsPath;
+        var userAppDataPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "MedicalSchoolApp.Windows", "settings.json");
+
+        if (!File.Exists(mainPath) && File.Exists(userAppDataPath))
+        {
+            try
+            {
+                var userJson = File.ReadAllText(userAppDataPath);
+                File.WriteAllText(mainPath, userJson);
+            }
+            catch { }
+        }
+
+        if (!File.Exists(mainPath))
         {
             var defaults = AppSettings.CreateDefault();
             Save(defaults);
@@ -45,7 +60,7 @@ public static class SettingsService
 
         try
         {
-            var json = File.ReadAllText(SettingsPath);
+            var json = File.ReadAllText(mainPath);
             var settings = JsonSerializer.Deserialize<AppSettings>(json);
             return settings ?? AppSettings.CreateDefault();
         }
@@ -59,6 +74,23 @@ public static class SettingsService
     {
         Directory.CreateDirectory(AppDataDir);
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        File.WriteAllText(SettingsPath, json);
+        try
+        {
+            File.WriteAllText(SettingsPath, json);
+        }
+        catch { }
+
+        // AppData側にもバックアップ同期
+        var userAppDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "MedicalSchoolApp.Windows");
+        if (Directory.Exists(userAppDataDir))
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(userAppDataDir, "settings.json"), json);
+            }
+            catch { }
+        }
     }
 }

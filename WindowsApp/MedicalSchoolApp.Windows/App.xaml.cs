@@ -115,6 +115,8 @@ public partial class App : System.Windows.Application
     public static void ShowBlockWindow()
     {
         if (_blockWindow is null) return;
+        _blockWindow.Refresh();
+        _blockWindow.WindowState = WindowState.Maximized;
         _blockWindow.Show();
         _blockWindow.Activate();
         _blockWindow.Topmost = true;

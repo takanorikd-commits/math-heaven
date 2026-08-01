@@ -21,14 +21,35 @@ public static class ModeService
         return AppSettings.WeekdayKeys[index];
     }
 
+    private static string NormalizeTimeStr(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in s.Trim())
+        {
+            if (c >= '０' && c <= '９') sb.Append((char)('0' + (c - '０')));
+            else if (c == '：') sb.Append(':');
+            else if (!char.IsWhiteSpace(c)) sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private static bool TryParseTime(string s, out TimeSpan time)
     {
-        if (string.IsNullOrWhiteSpace(s))
+        var normalized = NormalizeTimeStr(s);
+        if (string.IsNullOrEmpty(normalized))
         {
             time = TimeSpan.Zero;
             return false;
         }
-        return TimeSpan.TryParse(s.Trim(), CultureInfo.InvariantCulture, out time);
+
+        if (normalized == "24:00" || normalized == "24:00:00")
+        {
+            time = TimeSpan.FromDays(1); // 24時
+            return true;
+        }
+
+        return TimeSpan.TryParse(normalized, CultureInfo.InvariantCulture, out time);
     }
 
     public static bool IsStudyTime(AppSettings settings, DateTime now)
@@ -48,9 +69,14 @@ public static class ModeService
         {
             if (TryParseTime(range.Start, out var start) && TryParseTime(range.End, out var end))
             {
-                if (cur >= start && cur < end)
+                if (start < end)
                 {
-                    return true;
+                    if (cur >= start && cur < end) return true;
+                }
+                else if (start > end)
+                {
+                    // 日を跨ぐ時間帯 (例: 22:00 〜 01:00)
+                    if (cur >= start || cur < end) return true;
                 }
             }
         }
