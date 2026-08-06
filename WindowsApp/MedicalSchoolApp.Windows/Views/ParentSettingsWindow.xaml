@@ -93,7 +93,8 @@
                 <TextBlock Text="延長する分数（分）" Margin="0,0,0,4"/>
                 <TextBox x:Name="ExtendMinutesBox" Text="15" Margin="0,0,0,8"/>
                 <Button Content="新しい一時パスワードを発行する" Click="IssueTempPasswordButton_Click" Margin="0,0,0,8"/>
-                <TextBlock x:Name="IssuedCodeText" FontSize="26" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                <TextBlock x:Name="IssuedCodeText" FontSize="26" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                <Button x:Name="CopyIssuedCodeButton" Content="📋 コードをコピー" Click="CopyIssuedCodeButton_Click" Margin="0,0,0,12" Background="#334155" Visibility="Collapsed"/>
 
                 <TextBlock Text="発行済みの未使用コード一覧" FontWeight="Bold" Margin="0,4,0,4"/>
                 <ListBox x:Name="TempPasswordsListBox" Height="90" Margin="0,0,0,4" Background="#1E293B" Foreground="White"/>

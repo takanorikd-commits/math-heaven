@@ -17,6 +17,7 @@ public partial class ParentSettingsWindow : Window
 
     private string _unlockedPassword = "";
     private AppSettings _working = null!;
+    private string? _lastIssuedCode;
 
     public ParentSettingsWindow()
     {
@@ -395,6 +396,22 @@ public partial class ParentSettingsWindow : Window
 
         RefreshTempPasswordsList();
         IssuedCodeText.Text = $"新コード: {code} ({extendMinutes}分延長)";
+        _lastIssuedCode = code;
+        CopyIssuedCodeButton.Visibility = Visibility.Visible;
+    }
+
+    private void CopyIssuedCodeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_lastIssuedCode)) return;
+
+        try
+        {
+            System.Windows.Clipboard.SetText(_lastIssuedCode);
+        }
+        catch
+        {
+            // クリップボードが他プロセスにロックされている等、失敗しても致命的にしない
+        }
     }
 
     private void RemoveTempPasswordButton_Click(object sender, RoutedEventArgs e)
