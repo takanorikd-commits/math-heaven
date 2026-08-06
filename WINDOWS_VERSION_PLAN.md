@@ -349,4 +349,14 @@ Antigravity（別PC・別ツール）による開発中、`ProcessMonitor.cs`の
 ### 追記（2026-08-02 その6）: ブロック画面のパスワード入力が平文表示されていた不具合を修正
 保護者から「制限解除時にパスワードを入力すると画面に数字がそのまま表示される」との報告。`Views/BlockWindow.xaml`の入力欄（`CodeBox`）が通常の`TextBox`のままになっていた（`PasswordPromptWindow`・`ParentSettingsWindow`の他のパスワード欄は元々`PasswordBox`で正しく実装済みだった、ここだけ見落とし）。`PasswordBox`に変更し、コードビハインド側も`.Text`→`.Password`、`.Text = ""`→`.Clear()`に修正。ビルド・Release publish・`C:\MedicalSchoolApp\`への配置・管理者アカウントでの起動確認まで完了（コミット`c8e0656`）。
 
+### 追記（2026-08-07）: 一時パスワード（延長コード）をワンクリックでコピーできるように、+ 開発体制の整理
+保護者設定画面で新しい一時パスワード（延長コード）を発行した際、表示の下に「📋 コードをコピー」ボタンを追加し、クリップボードにコピーできるようにした（`ParentSettingsWindow.xaml`/`.xaml.cs`、コミット`66d89f9`）。ビルド・Release publish・`%ProgramData%\MedicalSchoolApp.Windows\bin\`への配置まで完了。
 
+**開発体制についての重要な注記**: Claude（このセッション）とAntigravityが、同一ローカルリポジトリ（`C:\Users\takan\Documents\antigravity\MedicalSchoolApp`）に対して並行して作業していたことが判明した。ローカルの`main`ブランチに、Claudeが把握していないAndroid側のローカルコミット（Antigravityによるもの）が直接乗っていたり、Windows側の同じバグ（設定同期・全アカウント保護の状態表示・自動起動の失敗等）が両者で重複して修正されていたりした。
+
+このため2026-08-07、以下の整理を行った:
+- Android側のローカル専用コミット（`Fix study schedule logic and strictly prioritize it in monitor service`）は内容を失わないよう`antigravity-local-android-wip`というブランチ名で退避した（`main`からは外している）。取り込むかどうかはAndroid側の作業者（Antigravity/ユーザー）の判断に委ねる。
+- Claudeのローカル`main`を`origin/main`（Antigravityが最後にpushした状態）に合わせ、Claude側で重複していたWindows側の修正コミットは実質的に不要となった（origin側の実装の方が新しく、ACL破損の調査等も含めてより網羅的だったため）。
+- ユーザーからの明示的な指示: **「android側は一切触らずに別プロジェクトとして扱ってください」**。以後、Claudeは`app/`フォルダ（Android版）には一切手を触れない（読む・提案するのも含めて関与しない）。Android側の開発・コミット・コンフリクト解消はすべてAntigravity側に委ねること。
+
+**今後の教訓**: 同一リポジトリを複数のAIツールが並行編集する場合、作業開始時に必ず`git fetch origin`と`git log --oneline <local>..<remote>`（および逆方向）で分岐の有無を確認すること。分岐していた場合、特にWindows側のコアロジック（`ProcessMonitor.cs`, `AppState.cs`, `MachineWideSetupService.cs`, `App.xaml.cs`等）に競合がないか確認してから作業を進めること。
