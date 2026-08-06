@@ -7,110 +7,93 @@ import com.example.medicalschoolapp.data.SettingsRepository
 import com.example.medicalschoolapp.model.StudySchedule
 import com.example.medicalschoolapp.model.TempPassword
 import com.example.medicalschoolapp.util.TimeCalculator
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
+class MainViewModel(val repository: SettingsRepository) : ViewModel() {
 
-    val startDate = repository.startDateFlow.stateIn(viewModelScope, SharingStarted.Eagerly, System.currentTimeMillis())
+    val startDate = repository.startDateFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
     val isParentPasswordSet = repository.isParentPasswordSetFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val tempPasswords = repository.tempPasswordsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val appCategories = repository.appCategoriesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val baseTimeMins = repository.baseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val initialBaseTimeMins = repository.initialBaseTimeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 240)
     val studySchedules = repository.studySchedulesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isPseudoRestrictionActive = repository.isPseudoRestrictionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val usageBaselineMs = repository.usageBaselineFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
-    // Bumped whenever we want remainingTimeMs to re-query live usage (periodic ticker,
-    // or right after a temp password grants extra time) rather than relying only on
-    // whatever the accessibility service last wrote to the cache.
     private val refreshTrigger = MutableStateFlow(0L)
-
     private val liveUsedTimeMsFlow = refreshTrigger.map { repository.getTodayPlayUsageMs() }
+    val todayUsedTimeMs = liveUsedTimeMsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val remainingTimeMs: StateFlow<Long> = combine(
         repository.startDateFlow,
         liveUsedTimeMsFlow,
         repository.dailyUsageStatsFlow,
-        repository.baseTimeFlow
-    ) { start, usedTimeMs, stats, manualBaseMins ->
-        val extendedTimeMins = stats.second
-        val now = System.currentTimeMillis()
-        
-        // Use manual override if set, otherwise use the auto-calculating base time
-        val baseMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(start, now)
+        repository.baseTimeFlow,
+        repository.initialBaseTimeFlow,
+        repository.usageBaselineFlow
+    ) { flows ->
+        val start = flows[0] as Long
+        val usedTimeMs = flows[1] as Long
+        val stats = flows[2] as Pair<Long, Int>
+        val manualBase = flows[3] as Int?
+        val initialBase = flows[4] as Int
+        val baseline = flows[5] as Long
 
-        TimeCalculator.getRemainingTimeTodayMs(start, now, usedTimeMs, extendedTimeMins, baseMins)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, 120 * 60 * 1000L)
+        val extendedMins = stats.second
+        val now = System.currentTimeMillis()
+        val baseMins = manualBase ?: TimeCalculator.getBaseAllowedMinutes(start, now, initialBase)
+        val effectiveUsedMs = (usedTimeMs - baseline).coerceAtLeast(0L)
+
+        TimeCalculator.getRemainingTimeTodayMs(start, now, effectiveUsedMs, extendedMins, baseMins)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val commonTestCountdown = MutableStateFlow(TimeCalculator.getCountdownToCommonTest())
 
     init {
         viewModelScope.launch {
             repository.cleanupExpiredTempPasswords()
-            // Ensure start date is fixed upon first launch if not already set
             val currentStart = repository.startDateFlow.first()
-            repository.setStartDate(currentStart)
+            if (currentStart == 0L) repository.setStartDate(System.currentTimeMillis())
         }
     }
 
-    fun updateCountdown() {
-        commonTestCountdown.value = TimeCalculator.getCountdownToCommonTest()
-    }
-
-    fun refreshRemainingTime() {
-        refreshTrigger.value = System.currentTimeMillis()
-    }
-
-    fun setParentPassword(password: String) {
+    fun updateCountdown() { commonTestCountdown.value = TimeCalculator.getCountdownToCommonTest() }
+    fun refreshRemainingTime() { refreshTrigger.value = System.currentTimeMillis() }
+    fun setParentPassword(p: String) { viewModelScope.launch { repository.setParentPassword(p) } }
+    fun verifyParentPassword(p: String, onResult: (Boolean) -> Unit) { viewModelScope.launch { onResult(repository.verifyParentPassword(p)) } }
+    fun toggleAppCategory(pkg: String, isPlay: Boolean) { viewModelScope.launch { repository.setAppCategory(pkg, !isPlay) } }
+    
+    fun setBaseTime(mins: Int) {
         viewModelScope.launch {
-            repository.setParentPassword(password)
-        }
-    }
-
-    fun verifyParentPassword(password: String, onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            onResult(repository.verifyParentPassword(password))
-        }
-    }
-
-    fun toggleAppCategory(packageName: String, currentIsPlay: Boolean) {
-        viewModelScope.launch {
-            repository.setAppCategory(packageName, !currentIsPlay)
-        }
-    }
-
-    fun setBaseTime(minutes: Int) {
-        viewModelScope.launch {
-            repository.setBaseTime(minutes)
+            repository.setBaseTime(mins)
             refreshRemainingTime()
         }
     }
 
-    fun updateStudySchedules(schedules: List<StudySchedule>) {
-        viewModelScope.launch {
-            repository.setStudySchedules(schedules)
-        }
-    }
-
-    fun togglePseudoRestriction() {
-        viewModelScope.launch {
-            val current = repository.isPseudoRestrictionFlow.first()
-            repository.setPseudoRestriction(!current)
-        }
-    }
-
-    fun generateTempPassword(expiresInHours: Int = 24) {
+    fun updateStudySchedules(s: List<StudySchedule>) { viewModelScope.launch { repository.setStudySchedules(s) } }
+    fun togglePseudoRestriction() { viewModelScope.launch { repository.setPseudoRestriction(!repository.isPseudoRestrictionFlow.first()) } }
+    fun generateTempPassword() {
         viewModelScope.launch {
             val code = (100000..999999).random().toString()
-            val expiresAt = System.currentTimeMillis() + (expiresInHours * 60 * 60 * 1000L)
-            val tp = TempPassword(code = code, expiresAt = expiresAt)
-            repository.addTempPassword(tp)
+            repository.addTempPassword(TempPassword(code = code, expiresAt = System.currentTimeMillis() + 86400000L))
+        }
+    }
+
+    fun addExtensionTime(mins: Int) {
+        viewModelScope.launch {
+            repository.notifyUnlockEvent()
+            repository.addExtendedTime(mins, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
+            refreshRemainingTime()
+        }
+    }
+
+    fun resetStartDate() {
+        viewModelScope.launch {
+            repository.clearStartDate()
+            repository.setStartDate(System.currentTimeMillis())
+            refreshRemainingTime()
         }
     }
 
@@ -123,9 +106,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
                 repository.addExtendedTime(tp.extensionMinutes, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
                 refreshRemainingTime()
                 onResult(true)
-            } else {
-                onResult(false)
-            }
+            } else onResult(false)
         }
     }
 }
@@ -133,7 +114,7 @@ class MainViewModel(private val repository: SettingsRepository) : ViewModel() {
 fun mainViewModelFactory(repository: SettingsRepository): ViewModelProvider.Factory =
     object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             return MainViewModel(repository) as T
         }
     }
