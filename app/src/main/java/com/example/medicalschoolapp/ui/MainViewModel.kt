@@ -24,29 +24,30 @@ class MainViewModel(val repository: SettingsRepository) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0L)
     private val liveUsedTimeMsFlow = refreshTrigger.map { repository.getTodayPlayUsageMs() }
-    val todayUsedTimeMs = liveUsedTimeMsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+    val todayUsedTimeMs = repository.dailyUsageStatsFlow.map { it.first }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val remainingTimeMs: StateFlow<Long> = combine(
         repository.startDateFlow,
-        liveUsedTimeMsFlow,
-        repository.dailyUsageStatsFlow,
+        repository.dailyUsageStatsFlow, // 手動計測の累計を使用
         repository.baseTimeFlow,
         repository.initialBaseTimeFlow,
-        repository.usageBaselineFlow
+        liveUsedTimeMsFlow // システム計測（補正用）
     ) { flows ->
         val start = flows[0] as Long
-        val usedTimeMs = flows[1] as Long
-        val stats = flows[2] as Pair<Long, Int>
-        val manualBase = flows[3] as Int?
-        val initialBase = flows[4] as Int
-        val baseline = flows[5] as Long
+        val stats = flows[1] as Pair<Long, Int>
+        val manualBase = flows[2] as Int?
+        val initialBase = flows[3] as Int
+        val systemUsedMs = flows[4] as Long
 
         val extendedMins = stats.second
         val now = System.currentTimeMillis()
         val baseMins = manualBase ?: TimeCalculator.getBaseAllowedMinutes(start, now, initialBase)
-        val effectiveUsedMs = (usedTimeMs - baseline).coerceAtLeast(0L)
+        
+        // 手動計測とシステム計測の多い方を採用する（より確実な制限のため）
+        val manualUsedMs = stats.first
+        val finalUsedMs = maxOf(manualUsedMs, (systemUsedMs - (repository.usageBaselineFlow.first())).coerceAtLeast(0L))
 
-        TimeCalculator.getRemainingTimeTodayMs(start, now, effectiveUsedMs, extendedMins, baseMins)
+        TimeCalculator.getRemainingTimeTodayMs(start, now, finalUsedMs, extendedMins, baseMins)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val commonTestCountdown = MutableStateFlow(TimeCalculator.getCountdownToCommonTest())
@@ -64,38 +65,12 @@ class MainViewModel(val repository: SettingsRepository) : ViewModel() {
     fun setParentPassword(p: String) { viewModelScope.launch { repository.setParentPassword(p) } }
     fun verifyParentPassword(p: String, onResult: (Boolean) -> Unit) { viewModelScope.launch { onResult(repository.verifyParentPassword(p)) } }
     fun toggleAppCategory(pkg: String, isPlay: Boolean) { viewModelScope.launch { repository.setAppCategory(pkg, !isPlay) } }
-    
-    fun setBaseTime(mins: Int) {
-        viewModelScope.launch {
-            repository.setBaseTime(mins)
-            refreshRemainingTime()
-        }
-    }
-
+    fun setBaseTime(mins: Int) { viewModelScope.launch { repository.setBaseTime(mins); refreshRemainingTime() } }
     fun updateStudySchedules(s: List<StudySchedule>) { viewModelScope.launch { repository.setStudySchedules(s) } }
     fun togglePseudoRestriction() { viewModelScope.launch { repository.setPseudoRestriction(!repository.isPseudoRestrictionFlow.first()) } }
-    fun generateTempPassword() {
-        viewModelScope.launch {
-            val code = (100000..999999).random().toString()
-            repository.addTempPassword(TempPassword(code = code, expiresAt = System.currentTimeMillis() + 86400000L))
-        }
-    }
-
-    fun addExtensionTime(mins: Int) {
-        viewModelScope.launch {
-            repository.notifyUnlockEvent()
-            repository.addExtendedTime(mins, TimeCalculator.getStartOfDayMs(System.currentTimeMillis()))
-            refreshRemainingTime()
-        }
-    }
-
-    fun resetStartDate() {
-        viewModelScope.launch {
-            repository.clearStartDate()
-            repository.setStartDate(System.currentTimeMillis())
-            refreshRemainingTime()
-        }
-    }
+    fun generateTempPassword() { viewModelScope.launch { val code = (100000..999999).random().toString(); repository.addTempPassword(TempPassword(code = code, expiresAt = System.currentTimeMillis() + 86400000L)) } }
+    fun addExtensionTime(mins: Int) { viewModelScope.launch { repository.notifyUnlockEvent(); repository.addExtendedTime(mins, TimeCalculator.getStartOfDayMs(System.currentTimeMillis())); refreshRemainingTime() } }
+    fun resetStartDate() { viewModelScope.launch { repository.clearStartDate(); repository.setStartDate(System.currentTimeMillis()); refreshRemainingTime() } }
 
     fun useTempPassword(code: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {

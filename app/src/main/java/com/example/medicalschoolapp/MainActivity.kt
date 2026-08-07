@@ -51,37 +51,32 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import android.os.PowerManager
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
 
 class MainActivity : ComponentActivity() {
     private var _isInPipMode = mutableStateOf(false)
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        addOnPictureInPictureModeChangedListener { info ->
-            _isInPipMode.value = info.isInPictureInPictureMode
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
-
+        addOnPictureInPictureModeChangedListener { info -> _isInPipMode.value = info.isInPictureInPictureMode }
         setContent {
             val isInPipMode by _isInPipMode
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    if (isInPipMode) {
-                        PipScreen()
-                    } else {
-                        AppNavigation()
-                    }
-                }
-            }
+            MaterialTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { if (isInPipMode) PipScreen() else AppNavigation() } }
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        
         val repo = LocalSettingsRepository(applicationContext)
-        val isStudyTime = runBlocking { repo.isStudyTimeNow() }
-        
+        val isStudy = runBlocking { repo.isStudyTimeNow() }
         val isTimeUp = runBlocking {
             try {
                 val stats = repo.dailyUsageStatsFlow.first()
@@ -89,27 +84,18 @@ class MainActivity : ComponentActivity() {
                 val start = repo.startDateFlow.first()
                 val initial = repo.initialBaseTimeFlow.first()
                 val baseline = repo.usageBaselineFlow.first()
-                
-                val baseMins = base ?: TimeCalculator.getBaseAllowedMinutes(start, System.currentTimeMillis(), initial)
-                val usedTimeMs = stats.first
-                val effectiveUsedMs = (usedTimeMs - baseline).coerceAtLeast(0L)
-                
-                val remainingMs: Long = (baseMins.toLong() + stats.second.toLong()) * 60000L - effectiveUsedMs
+                val systemUsed = repo.getTodayPlayUsageMs()
+                val baseMins = base ?: initial
+                val effectiveUsedMs = maxOf(stats.first, (systemUsed - baseline).coerceAtLeast(0L))
+                val remainingMs = (baseMins + stats.second) * 60000L - effectiveUsedMs
                 remainingMs < 60000L
-            } catch (e: Exception) {
-                false
-            }
+            } catch (e: Exception) { false }
         }
-
-        if (!isStudyTime && !isTimeUp) {
-            enterPip()
-        }
+        if (!isStudy && !isTimeUp) enterPip()
     }
 
     private fun enterPip() {
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(1, 1))
-            .build()
+        val params = PictureInPictureParams.Builder().setAspectRatio(Rational(1, 1)).build()
         enterPictureInPictureMode(params)
     }
 }
@@ -117,31 +103,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PipScreen() {
     val context = LocalContext.current
-    val viewModel: MainViewModel = viewModel(
-        factory = mainViewModelFactory(LocalSettingsRepository(context.applicationContext))
-    )
+    val viewModel: MainViewModel = viewModel(factory = mainViewModelFactory(LocalSettingsRepository(context.applicationContext)))
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
-    val remainingMinutes = (remainingTimeMs / 60000)
-
-    LaunchedEffect(Unit) {
-        while(true) {
-            viewModel.refreshRemainingTime()
-            delay(10000)
-        }
-    }
-
-    Box(
-        modifier = Modifier.fillMaxSize().padding(8.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
+    LaunchedEffect(Unit) { while(true) { viewModel.refreshRemainingTime(); delay(10000) } }
+    Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("残り", style = MaterialTheme.typography.bodySmall)
-            Text(
-                text = "${remainingMinutes}分",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (remainingMinutes <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-            )
+            Text(text = "${remainingMinutes}分", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = if (remainingMinutes <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -150,33 +119,11 @@ fun PipScreen() {
 fun AppNavigation() {
     val navController = rememberNavController()
     val context = LocalContext.current
-    val viewModel: MainViewModel = viewModel(
-        factory = mainViewModelFactory(LocalSettingsRepository(context.applicationContext))
-    )
-
+    val viewModel: MainViewModel = viewModel(factory = mainViewModelFactory(LocalSettingsRepository(context.applicationContext)))
     NavHost(navController = navController, startDestination = "dashboard") {
-        composable("dashboard") {
-            DashboardScreen(
-                viewModel = viewModel,
-                onNavigateToSettings = { navController.navigate("settings_auth") }
-            )
-        }
-        composable("settings_auth") {
-            SettingsAuthScreen(
-                viewModel = viewModel,
-                onAuthenticated = {
-                    navController.popBackStack()
-                    navController.navigate("settings")
-                },
-                onCancel = { navController.popBackStack() }
-            )
-        }
-        composable("settings") {
-            SettingsScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() }
-            )
-        }
+        composable("dashboard") { DashboardScreen(viewModel = viewModel, onNavigateToSettings = { navController.navigate("settings_auth") }) }
+        composable("settings_auth") { SettingsAuthScreen(viewModel = viewModel, onAuthenticated = { navController.popBackStack(); navController.navigate("settings") }, onCancel = { navController.popBackStack() }) }
+        composable("settings") { SettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() }) }
     }
 }
 
@@ -186,91 +133,51 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
     val countdown by viewModel.commonTestCountdown.collectAsState()
     val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
-    
     var isAccessibilityEnabled by remember { mutableStateOf(false) }
     var isIgnoringBatteryOptimizations by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         while (true) {
             viewModel.updateCountdown()
-            viewModel.refreshRemainingTime() // 強制的に最新の使用状況を読み込む
+            viewModel.refreshRemainingTime()
             val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-            val enabledServices = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             isAccessibilityEnabled = enabledServices.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             isIgnoringBatteryOptimizations = pm.isIgnoringBatteryOptimizations(context.packageName)
-            delay(5000) // 更新間隔を10秒から5秒に短縮
+            delay(5000)
         }
     }
 
     val remainingMinutes = (remainingTimeMs / 60000)
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         if (isPseudoActive) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-            ) {
-                Text(
-                    text = "【疑似制限モード有効中】遊びアプリはすべてブロックされます",
-                    color = MaterialTheme.colorScheme.onError,
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
-                )
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Text(text = "【疑似制限モード有効中】遊びアプリはすべてブロックされます", color = MaterialTheme.colorScheme.onError, modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
         }
 
         if (!isIgnoringBatteryOptimizations) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-            ) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Column(modifier = Modifier.padding(8.dp)) {
-                    Text(
-                        text = "重要: アプリの制限が勝手に切れるのを防ぐため、「バッテリーの最適化」を解除してください。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    TextButton(onClick = {
-                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = android.net.Uri.parse("package:${context.packageName}")
-                        }
-                        context.startActivity(intent)
-                    }) { Text("今すぐ設定する") }
+                    Text(text = "重要: アプリの制限が勝手に切れるのを防ぐため、「バッテリーの最適化」を解除してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    TextButton(onClick = { val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = android.net.Uri.parse("package:${context.packageName}") }; context.startActivity(intent) }) { Text("今すぐ設定する") }
                 }
             }
         }
 
         Text("本日の遊びスマホ残り時間", style = MaterialTheme.typography.titleLarge)
-        Text(
-            text = "${remainingMinutes} 分",
-            style = MaterialTheme.typography.displayLarge,
-            fontWeight = FontWeight.Bold,
-            color = if (remainingMinutes <= 0 || isPseudoActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = 16.dp)
-        )
+        Text(text = "${remainingMinutes} 分", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold, color = if (remainingMinutes <= 0 || isPseudoActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 16.dp))
 
         if (!isAccessibilityEnabled) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-            ) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text(text = "警告: 制限機能を動作させるには「ユーザー補助」の権限が必要です。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(text = "※「制限された設定」によりONにできない場合は、設定＞アプリ＞本アプリ＞右上の︙から許可してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(top = 4.dp))
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text("ユーザー補助（制限機能）を有効にする") }
+                    Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text("ユーザー補助設定を開く") }
                 }
-            }
-        }
-
-        if (android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text(text = "ヒント (Samsung端末): 「設定 > バッテリー > 制限のないアプリ」にこのアプリを追加すると、より安定します。", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
             }
         }
 
@@ -285,9 +192,6 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
         OutlinedButton(onClick = onNavigateToSettings, modifier = Modifier.fillMaxWidth()) { Text("保護者設定") }
     }
 }
-
-private const val MAX_AUTH_ATTEMPTS = 5
-private const val LOCKOUT_DURATION_MS = 30_000L
 
 @Composable
 fun SettingsAuthScreen(viewModel: MainViewModel, onAuthenticated: () -> Unit, onCancel: () -> Unit) {
@@ -311,7 +215,7 @@ fun SettingsAuthScreen(viewModel: MainViewModel, onAuthenticated: () -> Unit, on
             OutlinedTextField(value = inputPassword, onValueChange = { inputPassword = it }, label = { Text("パスワード") }, visualTransformation = PasswordVisualTransformation(), isError = errorMessage != null, enabled = !isLocked, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))
             if (errorMessage != null) { Text(errorMessage!!, color = MaterialTheme.colorScheme.error) }
             if (isLocked) { val remainingSec = ((lockedUntilMs - nowMs) / 1000).coerceAtLeast(0) + 1; Text("試行回数が上限に達しました。${remainingSec}秒後に再試行してください。", color = MaterialTheme.colorScheme.error) }
-            Button(onClick = { viewModel.verifyParentPassword(inputPassword) { success -> if (success) { failedAttempts = 0; onAuthenticated() } else { failedAttempts += 1; if (failedAttempts >= MAX_AUTH_ATTEMPTS) { lockedUntilMs = System.currentTimeMillis() + LOCKOUT_DURATION_MS; nowMs = System.currentTimeMillis(); failedAttempts = 0 }; errorMessage = "パスワードが間違っています" } } }, enabled = !isLocked, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) { Text("ロック解除") }
+            Button(onClick = { viewModel.verifyParentPassword(inputPassword) { success -> if (success) { failedAttempts = 0; onAuthenticated() } else { failedAttempts += 1; if (failedAttempts >= 5) { lockedUntilMs = System.currentTimeMillis() + 30000L; nowMs = System.currentTimeMillis(); failedAttempts = 0 }; errorMessage = "パスワードが間違っています" } } }, enabled = !isLocked, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) { Text("ロック解除") }
             TextButton(onClick = onCancel) { Text("キャンセル") }
         }
     }
@@ -363,14 +267,13 @@ fun DebugTimeScreen(viewModel: MainViewModel) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("--- 計算内訳 (単位:分) ---", style = MaterialTheme.typography.bodySmall)
-                Text("A. 基本設定: $currentBase 分"); Text("B. 延長(ボーナス): ${stats.second} 分", color = if(stats.second > 0) Color.Blue else Color.Unspecified); Text("C. 今日全体の累積使用: ${usedMinutes} 分", color = Color.Gray); Text("D. 設定時の基準点: ${baselineMs / 60000} 分", color = Color.Gray)
+                Text("A. 基本設定: $currentBase 分"); Text("B. 延長(ボーナス): ${stats.second} 分"); Text("C. 今日全体の累積使用: ${usedMinutes} 分", color = Color.Gray); Text("D. 設定時の基準点: ${baselineMs / 60000} 分", color = Color.Gray)
                 Divider(modifier = Modifier.padding(vertical = 4.dp))
                 val effectiveUsed = (usedMinutes - (baselineMs / 60000)).coerceAtLeast(0)
                 Text("実質の使用量 (C-D): $effectiveUsed 分")
                 Text("最終残り (A+B-実質): $remainingMinutes 分", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, color = if(remainingMinutes <= 0) Color.Red else MaterialTheme.colorScheme.primary)
             }
         }
-        Text("「残り時間0」から動かない場合、以下のボタンを押してください。", style = MaterialTheme.typography.bodySmall); Spacer(modifier = Modifier.height(24.dp))
         Button(onClick = { viewModel.addExtensionTime(240) }, modifier = Modifier.fillMaxWidth()) { Text("強制的に4時間追加する") }
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedButton(onClick = { viewModel.resetStartDate() }, modifier = Modifier.fillMaxWidth()) { Text("開始日を今日にリセット") }
@@ -381,12 +284,7 @@ fun DebugTimeScreen(viewModel: MainViewModel) {
 fun StudyScheduleScreen(viewModel: MainViewModel) {
     val schedules by viewModel.studySchedules.collectAsState()
     val days = listOf("月" to Calendar.MONDAY, "火" to Calendar.TUESDAY, "水" to Calendar.WEDNESDAY, "木" to Calendar.THURSDAY, "金" to Calendar.FRIDAY, "土" to Calendar.SATURDAY, "日" to Calendar.SUNDAY)
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        items(days) { (dayName, dayInt) ->
-            val daySchedule = schedules.find { it.dayOfWeek == dayInt } ?: StudySchedule(dayInt)
-            StudyDayCard(dayName = dayName, ranges = daySchedule.ranges, onUpdate = { newRanges -> updateDaySchedule(viewModel, schedules, dayInt, newRanges) })
-        }
-    }
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) { items(days) { (dayName, dayInt) -> val daySchedule = schedules.find { it.dayOfWeek == dayInt } ?: StudySchedule(dayInt); StudyDayCard(dayName = dayName, ranges = daySchedule.ranges, onUpdate = { newRanges -> updateDaySchedule(viewModel, schedules, dayInt, newRanges) }) } }
 }
 
 @Composable
@@ -435,13 +333,9 @@ private fun updateDaySchedule(viewModel: MainViewModel, allSchedules: List<Study
 
 @Composable
 fun DeviceAdminScreen() {
-    val context = LocalContext.current
-    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-    val adminComponent = ComponentName(context, MyAdminReceiver::class.java)
-    val isAdminActive = dpm.isAdminActive(adminComponent)
+    val context = LocalContext.current; val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager; val adminComponent = ComponentName(context, MyAdminReceiver::class.java); val isAdminActive = dpm.isAdminActive(adminComponent)
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("アンインストール防止 (デバイス管理者)", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
+        Text("アンインストール防止 (デバイス管理者)", style = MaterialTheme.typography.titleMedium); Spacer(modifier = Modifier.height(8.dp))
         Text("この機能を有効にすると、デバイス管理者権限が付与され、アプリのアンインストールが制限されます。アンインストールするには、まずこの設定をオフにする必要があります。", style = MaterialTheme.typography.bodySmall)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = { if (!isAdminActive) { val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply { putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent); putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "アンインストール防止のために有効にする必要があります。") }; context.startActivity(intent) } else { dpm.removeActiveAdmin(adminComponent) } }, modifier = Modifier.fillMaxWidth(), colors = if (isAdminActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()) { Text(if (isAdminActive) "アンインストール防止を解除" else "アンインストール防止を有効にする") }
@@ -452,8 +346,7 @@ fun DeviceAdminScreen() {
 fun PasswordSettingsScreen(viewModel: MainViewModel) {
     var newPassword by remember { mutableStateOf(""); }; var confirmPassword by remember { mutableStateOf(""); }; var errorMessage by remember { mutableStateOf<String?>(null); }; var successMessage by remember { mutableStateOf<String?>(null); }; val scrollState = rememberScrollState()
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).imePadding().padding(16.dp)) {
-        Text("保護者パスワードの変更", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(16.dp))
+        Text("保護者パスワードの変更", style = MaterialTheme.typography.titleMedium); Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(value = newPassword, onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) newPassword = it }, label = { Text("新しいパスワード (4桁の数字)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), isError = errorMessage != null)
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(value = confirmPassword, onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) confirmPassword = it }, label = { Text("パスワードの確認") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), isError = errorMessage != null)
@@ -491,16 +384,7 @@ fun AppCategoryList(viewModel: MainViewModel) {
     val context = LocalContext.current; val pm = context.packageManager
     val packages = remember { pm.getInstalledApplications(PackageManager.GET_META_DATA).filter { pm.getLaunchIntentForPackage(it.packageName) != null }.sortedBy { it.loadLabel(pm).toString() } }
     val appCategories by viewModel.appCategories.collectAsState()
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        items(packages) { appInfo ->
-            val isPlay = appCategories[appInfo.packageName] ?: true
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { viewModel.toggleAppCategory(appInfo.packageName, isPlay) }, verticalAlignment = Alignment.CenterVertically) {
-                Text(text = appInfo.loadLabel(pm).toString(), modifier = Modifier.weight(1f))
-                Text(text = if (isPlay) "遊び (制限対象)" else "勉強/通話 (対象外)", color = if (isPlay) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                Switch(checked = !isPlay, onCheckedChange = { viewModel.toggleAppCategory(appInfo.packageName, isPlay) })
-            }
-        }
-    }
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) { items(packages) { appInfo -> val isPlay = appCategories[appInfo.packageName] ?: true; Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { viewModel.toggleAppCategory(appInfo.packageName, isPlay) }, verticalAlignment = Alignment.CenterVertically) { Text(text = appInfo.loadLabel(pm).toString(), modifier = Modifier.weight(1f)); Text(text = if (isPlay) "遊び (制限対象)" else "勉強/通話 (対象外)", color = if (isPlay) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary); Switch(checked = !isPlay, onCheckedChange = { viewModel.toggleAppCategory(appInfo.packageName, isPlay) }) } } }
 }
 
 @Composable
