@@ -20,13 +20,20 @@ import com.example.medicalschoolapp.ui.MainViewModel
 import com.example.medicalschoolapp.ui.mainViewModelFactory
 import kotlinx.coroutines.delay
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 
 class BlockActivity : ComponentActivity() {
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private val pauseRetryHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -36,10 +43,14 @@ class BlockActivity : ComponentActivity() {
                         WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                         WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
 
-        // 2. メディア再生を強制停止（YouTube等の動画を止める）
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE))
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE))
+        // フルスクリーンインテント経由で強制起動された場合、裏に残る常駐通知を消す
+        (getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
+            .cancel(com.example.medicalschoolapp.service.AppMonitorService.BLOCK_NOTIFICATION_ID)
+
+        // 2. メディア再生を強制停止。PiP（小窓）はOSの仕様上どのActivityでも覆い隠せないため、
+        //    「動き続ける」こと自体を止めるにはオーディオフォーカスを奪うのが最も確実。
+        //    YouTube側がPiPへの遷移アニメーション中に再生を再開することがあるため、数回リトライする。
+        stealAudioFocusAndPause()
 
         onBackPressedDispatcher.addCallback(this) {}
 
@@ -58,9 +69,51 @@ class BlockActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // 画面が戻ってきた際にも再度メディア停止（しつこく止める）
+        stealAudioFocusAndPause()
+    }
+
+    private fun stealAudioFocusAndPause() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE))
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE))
+
+        // オーディオフォーカスを強制的に奪う。ほとんどのメディアアプリはフォーカスを失うと
+        // 自動的に一時停止するため、YouTube等の動画を止める最も確実な方法。
+        // 子供がPiP小窓の再生ボタンを押すとYouTube側が再度フォーカスを要求して奪い返してくるため、
+        // このActivityが表示されている間はフォーカスを失った瞬間に即座に奪い返し続ける(綱引き)。
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setAcceptsDelayedFocusGain(false)
+            .setOnAudioFocusChangeListener { focusChange ->
+                if (!isFinishing && !isDestroyed &&
+                    (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+                ) {
+                    stealAudioFocusAndPause()
+                }
+            }
+            .build()
+        audioManager.abandonAudioFocusRequest(audioFocusRequest ?: request)
+        audioManager.requestAudioFocus(request)
+        audioFocusRequest = request
+
+        // フォーカス喪失を無視するアプリ向けの保険として、メディアキーでのポーズも複数回リトライする
+        pauseRetryHandler.removeCallbacksAndMessages(null)
+        for (attempt in 0..4) {
+            pauseRetryHandler.postDelayed({
+                audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE))
+                audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE))
+            }, attempt * 400L)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        pauseRetryHandler.removeCallbacksAndMessages(null)
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
     }
 }
 

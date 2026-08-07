@@ -19,25 +19,14 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.example.medicalschoolapp.data.LocalSettingsRepository
 import com.example.medicalschoolapp.util.TimeCalculator
-import kotlinx.coroutines.flow.first
 
 class RemainingTimeWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = LocalSettingsRepository(context.applicationContext)
-        val startDateMs = repository.startDateFlow.first()
-        val stats = repository.dailyUsageStatsFlow.first()
-        val usedTimeMs = repository.getTodayPlayUsageMs()
-        val extendedTimeMins = stats.second
-        val manualBaseMins = repository.baseTimeFlow.first()
-        val now = System.currentTimeMillis()
-        
-        val baseAllowedMins = manualBaseMins ?: TimeCalculator.getBaseAllowedMinutes(startDateMs, now)
-
-        val remainingMs = TimeCalculator.getRemainingTimeTodayMs(
-            startDateMs, now, usedTimeMs, extendedTimeMins, baseAllowedMins
-        )
+        // AppMonitorService/MainActivityと同じ repository.calculateRemainingMs() を使い、ズレをなくす
+        val remainingMs = repository.calculateRemainingMs()
         val remainingMins = (remainingMs / 60000).coerceAtLeast(0)
-        
+
         val countdown = TimeCalculator.getCountdownToCommonTest()
 
         provideContent {

@@ -9,7 +9,6 @@ import com.example.medicalschoolapp.model.StudyTimeRange
 import com.example.medicalschoolapp.model.TempPassword
 import com.example.medicalschoolapp.util.PasswordHasher
 import com.example.medicalschoolapp.util.TimeCalculator
-import com.example.medicalschoolapp.util.UsageTracker
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
@@ -26,7 +25,6 @@ interface SettingsRepository {
     val appCategoriesFlow: Flow<Map<String, Boolean>>
     val dailyUsageStatsFlow: Flow<Pair<Long, Int>>
     val baseTimeFlow: Flow<Int?>
-    val usageBaselineFlow: Flow<Long>
     val studySchedulesFlow: Flow<List<StudySchedule>>
     val isPseudoRestrictionFlow: Flow<Boolean>
 
@@ -38,10 +36,9 @@ interface SettingsRepository {
     suspend fun cleanupExpiredTempPasswords()
     suspend fun setAppCategory(packageName: String, isPlay: Boolean)
     suspend fun isAppPlayCategory(packageName: String): Boolean
-    suspend fun updateDailyUsage(dateStartOfDay: Long, usageTimeMs: Long)
     suspend fun addUsageMs(ms: Long)
     suspend fun addExtendedTime(minutes: Int, dateStartOfDay: Long)
-    suspend fun getTodayPlayUsageMs(): Long
+    suspend fun calculateRemainingMs(): Long
     suspend fun setBaseTime(minutes: Int)
     suspend fun setStudySchedules(schedules: List<StudySchedule>)
     suspend fun setPseudoRestriction(active: Boolean)
@@ -63,11 +60,11 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         val DAILY_USAGE_TIME_MS = longPreferencesKey("daily_usage_time_ms")
         val EXTENDED_TIME_MINS_TODAY = intPreferencesKey("extended_time_mins_today")
         val BASE_TIME_MINS = intPreferencesKey("base_time_mins")
-        val USAGE_BASELINE_MS = longPreferencesKey("usage_baseline_ms")
         val INITIAL_BASE_TIME_MINS = intPreferencesKey("initial_base_time_mins")
         val LAST_UNLOCK_TIME_MS = longPreferencesKey("last_unlock_time_ms")
         val STUDY_SCHEDULES = stringPreferencesKey("study_schedules")
         val IS_PSEUDO_RESTRICTION = booleanPreferencesKey("is_pseudo_restriction")
+        private const val UNLOCK_GRACE_MS = 10 * 1000L
         val defaultAllowedPackages = setOf(
             "com.android.dialer", "com.google.android.dialer", "com.samsung.android.dialer",
             "com.samsung.android.incallui", "com.android.incallui", "com.android.server.telecom",
@@ -103,7 +100,6 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
         if (storedDate != todayStart) Pair(0L, 0) else Pair(it[DAILY_USAGE_TIME_MS] ?: 0L, it[EXTENDED_TIME_MINS_TODAY] ?: 0)
     }
     override val baseTimeFlow: Flow<Int?> = context.dataStore.data.map { it[BASE_TIME_MINS] }
-    override val usageBaselineFlow: Flow<Long> = context.dataStore.data.map { it[USAGE_BASELINE_MS] ?: 0L }
     override val studySchedulesFlow: Flow<List<StudySchedule>> = context.dataStore.data.map {
         val json = it[STUDY_SCHEDULES] ?: "[]"
         gson.fromJson(json, object : TypeToken<List<StudySchedule>>() {}.type)
@@ -147,41 +143,46 @@ class LocalSettingsRepository(private val context: Context) : SettingsRepository
             map[packageName] = isPlay; it[APP_CATEGORIES] = gson.toJson(map)
         }
     }
-    override suspend fun updateDailyUsage(dateStartOfDay: Long, usageTimeMs: Long) {
-        context.dataStore.edit { 
-            val stored = it[DAILY_USAGE_DATE] ?: 0L
-            if (stored != dateStartOfDay) {
-                it[DAILY_USAGE_DATE] = dateStartOfDay; it[DAILY_USAGE_TIME_MS] = 0L; it[EXTENDED_TIME_MINS_TODAY] = 0; it[USAGE_BASELINE_MS] = usageTimeMs
-            }
-        }
-    }
     override suspend fun addUsageMs(ms: Long) {
-        context.dataStore.edit { 
-            val current = it[DAILY_USAGE_TIME_MS] ?: 0L
-            it[DAILY_USAGE_TIME_MS] = current + ms
+        context.dataStore.edit {
+            // 日付が変わっていたら、その場でカウンターを当日分にリセットしてから加算する
+            val todayStart = TimeCalculator.getStartOfDayMs(System.currentTimeMillis())
+            val storedDate = it[DAILY_USAGE_DATE] ?: 0L
+            val currentMs = if (storedDate == todayStart) it[DAILY_USAGE_TIME_MS] ?: 0L else 0L
+            it[DAILY_USAGE_DATE] = todayStart
+            if (storedDate != todayStart) it[EXTENDED_TIME_MINS_TODAY] = 0
+            it[DAILY_USAGE_TIME_MS] = currentMs + ms
         }
     }
     override suspend fun addExtendedTime(minutes: Int, dateStartOfDay: Long) {
         context.dataStore.edit { it[EXTENDED_TIME_MINS_TODAY] = (it[EXTENDED_TIME_MINS_TODAY] ?: 0) + minutes }
     }
-    override suspend fun getTodayPlayUsageMs(): Long = UsageTracker.getTodayPlayUsageMs(context, this)
+    override suspend fun calculateRemainingMs(): Long {
+        val stats = dailyUsageStatsFlow.first()
+        val base = baseTimeFlow.first() ?: initialBaseTimeFlow.first()
+        return TimeCalculator.getRemainingTimeTodayMs(stats.first, stats.second, base)
+    }
     override suspend fun setBaseTime(minutes: Int) {
-        val currentUsage = getTodayPlayUsageMs()
-        context.dataStore.edit { 
+        context.dataStore.edit {
             it[BASE_TIME_MINS] = minutes; it[DAILY_USAGE_DATE] = TimeCalculator.getStartOfDayMs(System.currentTimeMillis())
-            it[DAILY_USAGE_TIME_MS] = 0L; it[EXTENDED_TIME_MINS_TODAY] = 0; it[USAGE_BASELINE_MS] = currentUsage
+            it[DAILY_USAGE_TIME_MS] = 0L; it[EXTENDED_TIME_MINS_TODAY] = 0
+            // 以前の解除猶予が残っていると「保存した瞬間から確実に判定が効く」が成立しなくなるため消す
+            it.remove(LAST_UNLOCK_TIME_MS)
         }
     }
     override suspend fun setStudySchedules(schedules: List<StudySchedule>) { context.dataStore.edit { it[STUDY_SCHEDULES] = gson.toJson(schedules) } }
     override suspend fun setPseudoRestriction(active: Boolean) { context.dataStore.edit { it[IS_PSEUDO_RESTRICTION] = active } }
     override suspend fun resetParentPassword() { context.dataStore.edit { it.remove(PARENT_PASSWORD) } }
     override suspend fun clearStartDate() {
-        context.dataStore.edit { it.remove(START_DATE); it.remove(INITIAL_BASE_TIME_MINS); it.remove(DAILY_USAGE_DATE); it.remove(DAILY_USAGE_TIME_MS); it.remove(EXTENDED_TIME_MINS_TODAY); it.remove(USAGE_BASELINE_MS) }
+        context.dataStore.edit { it.remove(START_DATE); it.remove(INITIAL_BASE_TIME_MINS); it.remove(DAILY_USAGE_DATE); it.remove(DAILY_USAGE_TIME_MS); it.remove(EXTENDED_TIME_MINS_TODAY) }
     }
     override suspend fun notifyUnlockEvent() { context.dataStore.edit { it[LAST_UNLOCK_TIME_MS] = System.currentTimeMillis() } }
     override fun isRecentlyUnlocked(): Boolean {
         val last = kotlinx.coroutines.runBlocking { context.dataStore.data.first()[LAST_UNLOCK_TIME_MS] ?: 0L }
-        return (System.currentTimeMillis() - last) < (5 * 60 * 1000L)
+        // ブロック画面を閉じた直後に監視ループが即座に再ブロックしてチラつくのを防ぐだけの短い猶予。
+        // 以前は5分だったが、その間は時間切れ判定ごと丸ごと無効化されてしまい、
+        // 「テストで一度延長操作をすると5分間は完全に無防備になる」という事故の元だったため短縮。
+        return (System.currentTimeMillis() - last) < UNLOCK_GRACE_MS
     }
     override suspend fun isStudyTimeNow(): Boolean {
         val calendar = java.util.Calendar.getInstance()

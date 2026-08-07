@@ -15,15 +15,13 @@ object TimeCalculator {
     }
 
     fun getRemainingTimeTodayMs(
-        startDateMs: Long,
-        currentDateMs: Long,
-        effectiveUsedMs: Long,
+        usedMs: Long,
         extendedTimeMins: Int,
         baseAllowedMins: Int
     ): Long {
         val totalAllowedMins = baseAllowedMins + extendedTimeMins
         val totalAllowedMs = totalAllowedMins * 60 * 1000L
-        return totalAllowedMs - effectiveUsedMs
+        return totalAllowedMs - usedMs
     }
 
     fun getCountdownToCommonTest(currentDate: ZonedDateTime = ZonedDateTime.now(ZoneId.of("Asia/Tokyo"))): String {

@@ -77,19 +77,9 @@ class MainActivity : ComponentActivity() {
         super.onUserLeaveHint()
         val repo = LocalSettingsRepository(applicationContext)
         val isStudy = runBlocking { repo.isStudyTimeNow() }
+        // AppMonitorService/ウィジェットと同じ repository.calculateRemainingMs() を使い、判定をズレさせない
         val isTimeUp = runBlocking {
-            try {
-                val stats = repo.dailyUsageStatsFlow.first()
-                val base = repo.baseTimeFlow.first()
-                val start = repo.startDateFlow.first()
-                val initial = repo.initialBaseTimeFlow.first()
-                val baseline = repo.usageBaselineFlow.first()
-                val systemUsed = repo.getTodayPlayUsageMs()
-                val baseMins = base ?: initial
-                val effectiveUsedMs = maxOf(stats.first, (systemUsed - baseline).coerceAtLeast(0L))
-                val remainingMs = (baseMins + stats.second) * 60000L - effectiveUsedMs
-                remainingMs < 60000L
-            } catch (e: Exception) { false }
+            try { repo.calculateRemainingMs() < 60000L } catch (e: Exception) { false }
         }
         if (!isStudy && !isTimeUp) enterPip()
     }
@@ -106,7 +96,6 @@ fun PipScreen() {
     val viewModel: MainViewModel = viewModel(factory = mainViewModelFactory(LocalSettingsRepository(context.applicationContext)))
     val remainingTimeMs by viewModel.remainingTimeMs.collectAsState()
     val remainingMinutes = (remainingTimeMs / 60000).coerceAtLeast(0)
-    LaunchedEffect(Unit) { while(true) { viewModel.refreshRemainingTime(); delay(10000) } }
     Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("残り", style = MaterialTheme.typography.bodySmall)
@@ -135,16 +124,20 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
     val isPseudoActive by viewModel.isPseudoRestrictionActive.collectAsState()
     var isAccessibilityEnabled by remember { mutableStateOf(false) }
     var isIgnoringBatteryOptimizations by remember { mutableStateOf(true) }
+    var canUseFullScreenIntent by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         while (true) {
             viewModel.updateCountdown()
-            viewModel.refreshRemainingTime()
             val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
             val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             isAccessibilityEnabled = enabledServices.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             isIgnoringBatteryOptimizations = pm.isIgnoringBatteryOptimizations(context.packageName)
+            if (Build.VERSION.SDK_INT >= 34) {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                canUseFullScreenIntent = nm.canUseFullScreenIntent()
+            }
             delay(5000)
         }
     }
@@ -163,6 +156,18 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text(text = "重要: アプリの制限が勝手に切れるのを防ぐため、「バッテリーの最適化」を解除してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                     TextButton(onClick = { val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = android.net.Uri.parse("package:${context.packageName}") }; context.startActivity(intent) }) { Text("今すぐ設定する") }
+                }
+            }
+        }
+
+        if (!canUseFullScreenIntent) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(text = "重要: 動画視聴中などでもブロック画面を確実に表示するため、「フルスクリーン通知」の許可が必要です。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    TextButton(onClick = {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply { data = android.net.Uri.parse("package:${context.packageName}") }
+                        context.startActivity(intent)
+                    }) { Text("今すぐ設定する") }
                 }
             }
         }
@@ -186,8 +191,6 @@ fun DashboardScreen(viewModel: MainViewModel, onNavigateToSettings: () -> Unit) 
         Text(text = countdown, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 8.dp))
         Spacer(modifier = Modifier.weight(1f))
         Button(onClick = { viewModel.togglePseudoRestriction() }, colors = if (isPseudoActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(), modifier = Modifier.fillMaxWidth()) { Text(if (isPseudoActive) "疑似制限モードを解除" else "疑似制限モード（テスト用）を開始") }
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) { Text("使用状況へのアクセス権限を設定") }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(onClick = onNavigateToSettings, modifier = Modifier.fillMaxWidth()) { Text("保護者設定") }
     }
@@ -259,19 +262,15 @@ fun DebugTimeScreen(viewModel: MainViewModel) {
     val usedMinutes = todayUsedTimeMs / 60000
     val autoBaseMins = TimeCalculator.getBaseAllowedMinutes(startDate, System.currentTimeMillis(), initialBaseTimeMins)
     val currentBase = baseTimeMins ?: autoBaseMins
-    LaunchedEffect(Unit) { while (true) { viewModel.refreshRemainingTime(); delay(5000) } }
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("【開発用】時間計算のデバッグ", style = MaterialTheme.typography.titleMedium); Spacer(modifier = Modifier.height(16.dp))
         val stats by viewModel.repository.dailyUsageStatsFlow.collectAsState(Pair(0L, 0))
-        val baselineMs by viewModel.repository.usageBaselineFlow.collectAsState(0L)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("--- 計算内訳 (単位:分) ---", style = MaterialTheme.typography.bodySmall)
-                Text("A. 基本設定: $currentBase 分"); Text("B. 延長(ボーナス): ${stats.second} 分"); Text("C. 今日全体の累積使用: ${usedMinutes} 分", color = Color.Gray); Text("D. 設定時の基準点: ${baselineMs / 60000} 分", color = Color.Gray)
+                Text("A. 基本設定: $currentBase 分"); Text("B. 延長(ボーナス): ${stats.second} 分"); Text("C. 本日の使用量(サービスが1秒ごとに加算): ${usedMinutes} 分", color = Color.Gray)
                 Divider(modifier = Modifier.padding(vertical = 4.dp))
-                val effectiveUsed = (usedMinutes - (baselineMs / 60000)).coerceAtLeast(0)
-                Text("実質の使用量 (C-D): $effectiveUsed 分")
-                Text("最終残り (A+B-実質): $remainingMinutes 分", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, color = if(remainingMinutes <= 0) Color.Red else MaterialTheme.colorScheme.primary)
+                Text("最終残り (A+B-C): $remainingMinutes 分", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, color = if(remainingMinutes <= 0) Color.Red else MaterialTheme.colorScheme.primary)
             }
         }
         Button(onClick = { viewModel.addExtensionTime(240) }, modifier = Modifier.fillMaxWidth()) { Text("強制的に4時間追加する") }
