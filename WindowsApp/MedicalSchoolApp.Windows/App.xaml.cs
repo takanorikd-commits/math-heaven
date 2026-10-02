@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -111,6 +112,78 @@ public partial class App : System.Windows.Application
         _chatGptWindow ??= new ChatGptWindow();
         _chatGptWindow.Show();
         _chatGptWindow.Activate();
+    }
+
+    /// <summary>
+    /// ChatGPTウィンドウが開いている（Show済みでHideされていない）かどうか。
+    /// フォーカスの有無ではなく表示状態で判定する（アプリ内操作で一瞬フォーカスが
+    /// 外れただけでBlockWindow（Topmost）が割り込んで隠してしまうのを防ぐため）。
+    /// </summary>
+    public static bool IsChatGptWindowVisible => _chatGptWindow?.IsVisible == true;
+
+    private const string EnglishHeavenProcessName = "english-heaven";
+
+    /// <summary>English Heavenが起動中かどうか（ChatGPTと同じく、フォーカスではなく起動有無で判定）。</summary>
+    public static bool IsEnglishHeavenRunning() =>
+        System.Diagnostics.Process.GetProcessesByName(EnglishHeavenProcessName).Any(p => !SafeHasExited(p));
+
+    public static void LaunchEnglishHeaven()
+    {
+        var existingProcesses = System.Diagnostics.Process.GetProcessesByName(EnglishHeavenProcessName)
+            .Where(p => !SafeHasExited(p)).ToList();
+        if (existingProcesses.Count > 0)
+        {
+            // 既に起動中（起動処理中でまだウィンドウが無い場合も含む）なら新規プロセスは作らない。
+            // ウィンドウが既にあるなら前面に出す。無ければ起動処理が終わるのを待つだけでよい。
+            var withWindow = existingProcesses.FirstOrDefault(p => p.MainWindowHandle != IntPtr.Zero);
+            if (withWindow is not null)
+            {
+                BringToForeground(withWindow.MainWindowHandle);
+            }
+            return;
+        }
+
+        var exePath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "english-heaven", "english-heaven.exe");
+
+        if (!System.IO.File.Exists(exePath))
+        {
+            MessageBox.Show("English Heavenが見つかりませんでした。インストールされているか確認してください。",
+                "English Heaven", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath)
+        {
+            UseShellExecute = true,
+        });
+    }
+
+    private static bool SafeHasExited(System.Diagnostics.Process p)
+    {
+        try { return p.HasExited; }
+        catch { return true; }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    private const int SwRestore = 9;
+
+    private static void BringToForeground(IntPtr hWnd)
+    {
+        if (IsIconic(hWnd))
+        {
+            ShowWindow(hWnd, SwRestore);
+        }
+        SetForegroundWindow(hWnd);
     }
 
     public static void ShowBlockWindow()

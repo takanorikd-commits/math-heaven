@@ -64,6 +64,13 @@ public partial class BlockWindow : Window
     private void OpenChatGptButton_Click(object sender, RoutedEventArgs e)
     {
         App.ShowChatGptWindow();
+        App.HideBlockWindow();
+    }
+
+    private void OpenEnglishHeavenButton_Click(object sender, RoutedEventArgs e)
+    {
+        App.LaunchEnglishHeaven();
+        App.HideBlockWindow();
     }
 
     private void CodeBox_KeyDown(object sender, KeyEventArgs e)

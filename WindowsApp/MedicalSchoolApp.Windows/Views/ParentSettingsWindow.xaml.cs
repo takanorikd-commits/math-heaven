@@ -17,7 +17,6 @@ public partial class ParentSettingsWindow : Window
 
     private string _unlockedPassword = "";
     private AppSettings _working = null!;
-    private string? _lastIssuedCode;
 
     public ParentSettingsWindow()
     {
@@ -367,6 +366,8 @@ public partial class ParentSettingsWindow : Window
 
         TempPasswordsListBox.ItemsSource = null;
         TempPasswordsListBox.ItemsSource = activeCodes;
+
+        CopyIssuedCodeButton.Visibility = activeCodes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void IssueTempPasswordButton_Click(object sender, RoutedEventArgs e)
@@ -396,17 +397,18 @@ public partial class ParentSettingsWindow : Window
 
         RefreshTempPasswordsList();
         IssuedCodeText.Text = $"新コード: {code} ({extendMinutes}分延長)";
-        _lastIssuedCode = code;
-        CopyIssuedCodeButton.Visibility = Visibility.Visible;
     }
 
     private void CopyIssuedCodeButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_lastIssuedCode)) return;
+        var activeCodes = _working.TempPasswords.Where(t => !t.Used).ToList();
+        if (activeCodes.Count == 0) return;
+
+        var text = string.Join(Environment.NewLine, activeCodes.Select(t => $"{t.CodeDisplay}（{t.ExtendMinutes}分延長）"));
 
         try
         {
-            System.Windows.Clipboard.SetText(_lastIssuedCode);
+            System.Windows.Clipboard.SetText(text);
         }
         catch
         {
@@ -428,6 +430,23 @@ public partial class ParentSettingsWindow : Window
                 RefreshTempPasswordsList();
             }
         }
+    }
+
+    private void RemoveAllTempPasswordsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_working.TempPasswords.Count(t => !t.Used) == 0) return;
+
+        if (MessageBox.Show("発行済みの未使用コードをすべて削除しますか？", "すべてのコードを削除", MessageBoxButton.OKCancel) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        _working.TempPasswords.RemoveAll(t => !t.Used);
+        AppState.Settings.TempPasswords = _working.TempPasswords;
+        AppState.SaveSettings();
+        RefreshTempPasswordsList();
+        IssuedCodeText.Text = string.Empty;
+        CopyIssuedCodeButton.Visibility = Visibility.Collapsed;
     }
 
     private void ResetExtraMinutesButton_Click(object sender, RoutedEventArgs e)

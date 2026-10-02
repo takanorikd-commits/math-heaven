@@ -44,6 +44,8 @@ public static class ProcessMonitor
             "remoting_start_host.exe", "remote_assistance_host.exe", "remote_assistance_host_uiaccess.exe",
             "remoting_crashpad_handler.exe", "remote_open_url.exe", "remote_security_key.exe",
             "remote_webauthn.exe",
+            // English Heaven（学習用アプリ。ChatGPTと同様、制限モード中もブロック画面のボタンから起動できるようにする）
+            "english-heaven.exe",
         };
 
 #if DEBUG
@@ -117,16 +119,23 @@ public static class ProcessMonitor
             CloseAttempts.Remove(pid);
         }
 
+        var foregroundExe = GetForegroundExeName(ownPid);
+
         if (mode == Mode.Normal)
         {
-            var foregroundExe = GetForegroundExeName(ownPid);
             if (!string.IsNullOrEmpty(foregroundExe) && !allowedSet.Contains(foregroundExe))
             {
                 today.UsedMinutes += 1.0 / 60.0;
             }
         }
 
-        if (mode == Mode.Normal)
+        // 制限モード中でも、ブロック画面から開いた例外（ChatGPT/English Heaven）が
+        // 起動中の間はBlockWindow（Topmost）で覆い隠さないようにする。
+        // フォーカスの有無ではなく起動有無で判定する（アプリ内操作で一瞬フォーカスが
+        // 外れただけで割り込んで隠してしまい、しかも自力で復帰できなくなるのを防ぐため）。
+        var exceptionInUse = App.IsChatGptWindowVisible || App.IsEnglishHeavenRunning();
+
+        if (mode == Mode.Normal || exceptionInUse)
         {
             App.HideBlockWindow();
         }
